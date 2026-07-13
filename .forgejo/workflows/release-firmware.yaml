@@ -21,20 +21,18 @@ jobs:
     container:
       image: espressif/idf:v6.0.2
     steps:
-      - name: Check out release source
-        env:
-          REQUESTED_TAG: ${{ inputs.release_tag }}
+      - name: Install checkout action runtime
         run: |
-          if [ -n "$REQUESTED_TAG" ]; then
-            REF="refs/tags/$REQUESTED_TAG"
-          else
-            REF="${FORGEJO_REF:-refs/heads/$FORGEJO_REF_NAME}"
-          fi
-          AUTH="$(printf 'x-access-token:%s' "$FORGEJO_TOKEN" | base64 -w 0)"
-          git init .
-          git remote add origin "$FORGEJO_SERVER_URL/$FORGEJO_REPOSITORY.git"
-          git -c "http.extraHeader=AUTHORIZATION: basic $AUTH" fetch --depth=1 origin "$REF"
-          git checkout --detach FETCH_HEAD
+          apt-get update
+          apt-get install -y --no-install-recommends nodejs
+
+      - name: Check out release source
+        uses: https://data.forgejo.org/actions/checkout@v6
+        with:
+          # A manual dispatch may publish an existing tag; otherwise use the event ref.
+          ref: ${{ inputs.release_tag || forgejo.ref }}
+          # Git Cliff needs complete tagged history to calculate release notes.
+          fetch-depth: 0
 
       - name: Select release version
         id: release
@@ -82,11 +80,24 @@ jobs:
           export VERSION SHA256 SIZE OTA_URL
           python3 -c 'import json, os; print(json.dumps({"version": os.environ["VERSION"], "target": "esp32s3", "url": os.environ["OTA_URL"], "sha256": os.environ["SHA256"], "size": int(os.environ["SIZE"]), "build": os.environ.get("FORGEJO_SHA", "")}, indent=2))' > "dist/walldisplay-${VERSION}.json"
 
-      - name: Prepare Forgejo release publisher
+      - name: Prepare Forgejo release publisher and changelog generator
         if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends nodejs jq curl
+          apt-get install -y --no-install-recommends jq curl python3-pip
+          python3 -m pip install --no-cache-dir git-cliff==2.13.1
+
+      - name: Compute changelog and release notes
+        id: changelog
+        if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
+        run: |
+          git-cliff --tag "$VERSION" --output dist/CHANGELOG.md
+          NOTES="$(git-cliff --tag "$VERSION" --unreleased --strip all 2>/dev/null || git-cliff --latest --strip all)"
+          {
+            echo "notes<<CHANGELOG_NOTES"
+            printf '%s\n' "$NOTES"
+            echo "CHANGELOG_NOTES"
+          } >> "$FORGEJO_OUTPUT"
 
       - name: Publish Forgejo release assets
         if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
@@ -100,6 +111,6 @@ jobs:
           sha: ${{ steps.release.outputs.sha }}
           token: ${{ forgejo.token }}
           release-dir: dist
-          release-notes: ESP32-S3 firmware release. Use the JSON manifest for HTTPS OTA or the factory archive for serial flashing.
+          release-notes: ${{ steps.changelog.outputs.notes }}
           prerelease: ${{ contains(steps.release.outputs.version, '-') }}
           override: true
