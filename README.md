@@ -5,6 +5,7 @@ Firmware for the Guition ESP32-4848S040 wall panel. It uses ESP-IDF, LVGL, MQTT,
 ## What it does
 
 - Shows time, date, weather, media, optional measurement chips, and up to five footer buttons.
+- Dims its PWM-controlled backlight after inactivity and can switch it off completely; a touch or wake command restores full brightness.
 - Receives display state over MQTT and publishes button commands, availability, diagnostics, and retained state.
 - Registers its Home Assistant entities through MQTT Discovery.
 - Supports HTTPS OTA updates and rollback after a failed boot.
@@ -36,10 +37,10 @@ Give every panel its own MQTT base topic, for example `panel/guition-4848s040-ki
 
 Import [the MQTT Sync blueprint](config/blueprints/automation/walldisplay/mqtt_sync.yaml), create an automation from it, and set at least `panel_topic`, `panel_name`, `weather_entity`, and `media_entity`. Chip sensors and footer-button state entities are optional.
 
-The current firmware and blueprint release is `0.1.0`; the MQTT contract is `1`. During synchronization the blueprint publishes retained metadata to `<base>/set/blueprint_info`:
+The current firmware and blueprint release is `0.2.1`; the MQTT contract is `2`. During synchronization the blueprint publishes retained metadata to `<base>/set/blueprint_info`:
 
 ```json
-{"version":"0.1.0","contract":"1"}
+{"version":"0.2.1","contract":"2"}
 ```
 
 The panel compares that contract with its own value and exposes the result through diagnostic entities. Increment the contract in both firmware and blueprint whenever a topic, payload, discovery entity, or its meaning changes.
@@ -57,17 +58,19 @@ The panel compares that contract with its own value and exposes the result throu
 
 Use `set/name`, `set/weather`, `set/media`, `set/clock`, `set/date`, `set/chipN`, `set/chipN/color`, `set/buttonN/label`, and `set/buttonN/state` for display data. The panel republishes those values under `state/...`.
 
+The blueprint also publishes retained display-power settings to `set/display_power`, for example `{"dim_after":300,"off_after":600,"dim_percent":20}`. `dim_after` is the idle time before dimming, `off_after` is the additional dimmed time before the backlight turns off, and `dim_percent` is the dimmed brightness. A `dim_after` value of `0` disables display power saving; an `off_after` value of `0` keeps the display dimmed rather than turning it off. The defaults are 5 minutes, 10 additional minutes, and 20% brightness.
+
 Weather can be text or JSON, for example:
 
 ```json
 {"condition":"sunny","temperature":22.5,"forecast":[{"day":"Sun","condition":"rainy","high":24,"low":15}]}
 ```
 
-Buttons publish to `<base>/cmd/buttonN`. A configured state entity controls the visible toggle state; without one, the button is action-only. A `sync` command requests a complete blueprint refresh.
+Buttons publish to `<base>/cmd/buttonN`. A configured state entity controls the visible toggle state; without one, the button is action-only. A `sync` command requests a complete blueprint refresh. The discovered **Wake Panel** button publishes to `<base>/cmd/wake`; this and any touchscreen press reset the display timer and restore full brightness. The blueprint's optional **Wake-up triggers** input accepts multiple Home Assistant triggers and publishes the same non-retained wake command. This trigger-selector feature requires Home Assistant 2024.10 or newer.
 
 ### Discovered entities
 
-When discovery is enabled, Home Assistant receives weather, media, time, date, chip values and colours, button state, five button controls, a sync button, MQTT-topic configuration, OTA-manifest configuration, and diagnostic sensors. Diagnostics include firmware and blueprint versions, contract compatibility, IP/MAC, Wi-Fi details, active partition, reset reason, uptime, and free heap/PSRAM.
+When discovery is enabled, Home Assistant receives weather, media, time, date, chip values and colours, button state, five button controls, a sync button, a wake button, MQTT-topic configuration, OTA-manifest configuration, and diagnostic sensors. Diagnostics include firmware and blueprint versions, contract compatibility, IP/MAC, Wi-Fi details, active partition, reset reason, uptime, and free heap/PSRAM.
 
 ## Releases and OTA
 
@@ -92,3 +95,7 @@ Weather icons are adapted from the dark icon set in [NSPanel-Easy](https://githu
 ## Repository maintenance
 
 Follow [AGENTS.md](AGENTS.md) and [the project-maintenance skill](skills/project-maintenance/SKILL.md). Keep this README current, align firmware and blueprint release versions, and validate firmware, blueprint YAML, and the final diff before handoff.
+
+## Tests
+
+Run `sh tests/run_unit_tests.sh` before merging. These host-runnable C unit tests cover display dimming and screen-off timing boundaries without requiring a panel. The Forgejo release workflow runs them before the ESP32-S3 build.

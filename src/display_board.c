@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "esp_lcd_st7701.h"
 #include "driver/i2c_master.h"
+#include "driver/ledc.h"
 
 static const char *TAG = "display_board";
 
@@ -24,6 +25,10 @@ static const char *TAG = "display_board";
 #define BOARD_LCD_DATA_WIDTH 16
 #define BOARD_LCD_BITS_PER_PIXEL 16
 #define BOARD_LCD_BOUNCE_BUFFER_HEIGHT 40
+#define BOARD_BACKLIGHT_LEDC_TIMER LEDC_TIMER_0
+#define BOARD_BACKLIGHT_LEDC_CHANNEL LEDC_CHANNEL_0
+#define BOARD_BACKLIGHT_LEDC_DUTY_RES LEDC_TIMER_10_BIT
+#define BOARD_BACKLIGHT_LEDC_MAX_DUTY ((1U << 10) - 1U)
 
 static const uint8_t s_cmd_ff_10[] = {0x77, 0x01, 0x00, 0x00, 0x10};
 static const uint8_t s_cmd_c0[] = {0x3B, 0x00};
@@ -115,13 +120,33 @@ static esp_err_t init_lvgl_port(void) {
 }
 
 static esp_err_t init_backlight(void) {
-    const gpio_config_t bk_gpio_config = {
-        .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = 1ULL << BOARD_LCD_BACKLIGHT,
+    const ledc_timer_config_t timer_config = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .duty_resolution = BOARD_BACKLIGHT_LEDC_DUTY_RES,
+        .timer_num = BOARD_BACKLIGHT_LEDC_TIMER,
+        .freq_hz = 5000,
+        .clk_cfg = LEDC_AUTO_CLK,
     };
-    ESP_RETURN_ON_ERROR(gpio_config(&bk_gpio_config), TAG, "backlight gpio config failed");
-    gpio_set_level(BOARD_LCD_BACKLIGHT, 0);
-    return ESP_OK;
+    const ledc_channel_config_t channel_config = {
+        .gpio_num = BOARD_LCD_BACKLIGHT,
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .channel = BOARD_BACKLIGHT_LEDC_CHANNEL,
+        .intr_type = LEDC_INTR_DISABLE,
+        .timer_sel = BOARD_BACKLIGHT_LEDC_TIMER,
+        .duty = 0,
+        .hpoint = 0,
+    };
+    ESP_RETURN_ON_ERROR(ledc_timer_config(&timer_config), TAG, "backlight timer config failed");
+    return ledc_channel_config(&channel_config);
+}
+
+esp_err_t display_board_set_backlight(uint8_t percent) {
+    if (percent > 100) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const uint32_t duty = (BOARD_BACKLIGHT_LEDC_MAX_DUTY * percent) / 100;
+    ESP_RETURN_ON_ERROR(ledc_set_duty(LEDC_LOW_SPEED_MODE, BOARD_BACKLIGHT_LEDC_CHANNEL, duty), TAG, "backlight duty failed");
+    return ledc_update_duty(LEDC_LOW_SPEED_MODE, BOARD_BACKLIGHT_LEDC_CHANNEL);
 }
 
 static esp_err_t init_panel(display_board_handle_t *handle) {
@@ -309,7 +334,7 @@ esp_err_t display_board_init(display_board_handle_t *handle) {
     ESP_RETURN_ON_ERROR(init_panel(handle), TAG, "panel init failed");
     ESP_RETURN_ON_ERROR(init_touch(handle), TAG, "touch init failed");
 
-    gpio_set_level(BOARD_LCD_BACKLIGHT, 1);
+    ESP_RETURN_ON_ERROR(display_board_set_backlight(100), TAG, "backlight enable failed");
     ESP_LOGI(TAG, "Board initialized: ST7701 display and GT911 touch are registered with LVGL");
     return ESP_OK;
 }

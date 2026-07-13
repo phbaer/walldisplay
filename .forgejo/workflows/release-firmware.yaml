@@ -6,6 +6,7 @@ on:
       - '**'
     tags:
       - 'v*'
+  pull_request:
   workflow_dispatch:
     inputs:
       release_tag:
@@ -55,6 +56,9 @@ jobs:
           echo "VERSION=$VERSION" >> "$FORGEJO_ENV"
           echo "version=$VERSION" >> "$FORGEJO_OUTPUT"
           echo "sha=$RELEASE_SHA" >> "$FORGEJO_OUTPUT"
+
+      - name: Run unit tests
+        run: sh tests/run_unit_tests.sh
 
       - name: Build ESP32-S3 firmware
         run: |

@@ -48,3 +48,4 @@ typedef struct {
 } display_board_handle_t;
 
 esp_err_t display_board_init(display_board_handle_t *handle);
+esp_err_t display_board_set_backlight(uint8_t percent);

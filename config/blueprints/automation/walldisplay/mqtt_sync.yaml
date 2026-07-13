@@ -1,8 +1,10 @@
 blueprint:
-  name: WallDisplay MQTT Sync v0.1.0 (Contract 1)
+  name: WallDisplay MQTT Sync v0.2.1 (Contract 2)
   description: >-
     Publish panel name, clock, weather, media, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
+  homeassistant:
+    min_version: 2024.10.0
   domain: automation
   source_url: https://example.invalid/walldisplay/blueprint
   input:
@@ -27,6 +29,45 @@ blueprint:
       selector:
         entity:
           domain: media_player
+    dim_after:
+      name: Dim display after
+      description: Seconds without touch or wake activity before dimming. Set to 0 to disable dimming and screen-off.
+      default: 300
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
+    screen_off_after:
+      name: Turn screen off after dimming
+      description: Additional seconds at dim brightness before switching the backlight off. Set to 0 to remain dimmed.
+      default: 600
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: s
+          mode: box
+    dim_brightness:
+      name: Dim brightness
+      description: Backlight percentage while dimmed.
+      default: 20
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: slider
+    wakeup_triggers:
+      name: Wake-up triggers
+      description: Optional Home Assistant triggers that restore full brightness and reset the inactivity timer. Multiple triggers are supported.
+      default: []
+      selector:
+        trigger:
     chip1_sensor:
       name: Header measurement chip 1 sensor
       description: Optional. Leave empty to hide this chip.
@@ -241,12 +282,15 @@ trace:
   stored_traces: 20
 
 variables:
-  blueprint_version: "0.1.0"
-  panel_contract_version: "1"
+  blueprint_version: "0.2.1"
+  panel_contract_version: "2"
   panel_topic: !input panel_topic
   panel_name: !input panel_name
   weather_entity: !input weather_entity
   media_entity: !input media_entity
+  dim_after: !input dim_after
+  screen_off_after: !input screen_off_after
+  dim_brightness: !input dim_brightness
   chip1_sensor: !input chip1_sensor
   chip1_warn_above: !input chip1_warn_above
   chip1_alert_above: !input chip1_alert_above
@@ -294,6 +338,8 @@ triggers:
   - id: panel_sync
     trigger: mqtt
     topic: "{{ panel_topic }}/cmd/sync"
+
+  - triggers: !input wakeup_triggers
 
   - id: clock
     trigger: time_pattern
@@ -412,6 +458,12 @@ actions:
               qos: 1
               retain: true
               payload: "{{ {'version': blueprint_version, 'contract': panel_contract_version} | tojson }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/display_power"
+              qos: 1
+              retain: true
+              payload: "{{ {'dim_after': dim_after | int, 'off_after': screen_off_after | int, 'dim_percent': dim_brightness | int} | tojson }}"
           - action: mqtt.publish
             data:
               topic: "{{ panel_topic }}/set/button1/label"
@@ -807,6 +859,22 @@ actions:
               qos: 1
               retain: true
               payload: "{{ states(button5_state_entity) }}"
+
+  - choose:
+      - conditions: >-
+          {{ trigger.id not in [
+            'startup', 'automation_reload', 'panel_online', 'panel_sync', 'clock', 'panel_refresh',
+            'weather', 'weather_refresh', 'media', 'chip1', 'chip2', 'chip3', 'chip4',
+            'btn1_press', 'btn2_press', 'btn3_press', 'btn4_press', 'btn5_press',
+            'button1_state', 'button2_state', 'button3_state', 'button4_state', 'button5_state'
+          ] }}
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/cmd/wake"
+              qos: 1
+              retain: false
+              payload: "wake"
 
   - choose:
       - conditions: "{{ trigger.id == 'btn1_press' and button1_label | length > 0 and button1_state_entity | length > 0 }}"

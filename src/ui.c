@@ -1,6 +1,7 @@
 #include "walldisplay/ui.h"
 
 #include "walldisplay/app_config.h"
+#include "walldisplay/display_dimming.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 #include "lvgl.h"
@@ -66,6 +67,11 @@ static lv_obj_t *s_dynamic_button_labels[UI_MAX_DYNAMIC_BUTTONS];
 static lv_obj_t *s_dynamic_button_switches[UI_MAX_DYNAMIC_BUTTONS];
 static int s_dynamic_button_slots[UI_MAX_DYNAMIC_BUTTONS];
 static void dynamic_button_event_cb(lv_event_t *event);
+
+static void touch_activity_event_cb(lv_event_t *event) {
+    LV_UNUSED(event);
+    display_dimming_wake();
+}
 static void page_switch_event_cb(lv_event_t *event);
 
 /* Static Noto Sans renders all UI text without runtime glyph allocation. */
@@ -545,9 +551,7 @@ static esp_err_t set_label_text(lv_obj_t *label, const char *text) {
 }
 
 esp_err_t ui_init(const display_board_handle_t *board) {
-    LV_UNUSED(board);
-
-    if (!lv_is_initialized()) {
+    if (board == NULL || !lv_is_initialized()) {
         ESP_LOGW(TAG, "LVGL is not initialized yet; UI scaffold skipped");
         return ESP_OK;
     }
@@ -557,6 +561,9 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     }
 
     lv_obj_t *screen = lv_scr_act();
+    if (board->touch != NULL) {
+        lv_indev_add_event_cb(board->touch, touch_activity_event_cb, LV_EVENT_PRESSED, NULL);
+    }
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);

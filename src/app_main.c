@@ -1,6 +1,7 @@
 #include "walldisplay/app_config.h"
 #include "walldisplay/display_board.h"
 #include "walldisplay/device_info.h"
+#include "walldisplay/display_dimming.h"
 #include "walldisplay/ha_discovery.h"
 #include "walldisplay/mqtt_app.h"
 #include "walldisplay/ota_manager.h"
@@ -90,6 +91,15 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
     snprintf(topic, sizeof(topic), "%s/cmd/config/base_topic", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
+    snprintf(topic, sizeof(topic), "%s/cmd/wake", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+
+    snprintf(topic, sizeof(topic), "%s/set/display_power", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+
+    snprintf(topic, sizeof(topic), "%s/state/display_power", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+
     for (int i = 1; i <= 5; ++i) {
         snprintf(topic, sizeof(topic), "%s/set/button%d/label", config->base_topic, i);
         esp_mqtt_client_subscribe(client, topic, 1);
@@ -170,6 +180,36 @@ static void on_mqtt_message(const char *topic, const char *payload, void *user_c
         ESP_LOGI(TAG, "Restarting to apply new MQTT topic");
         vTaskDelay(pdMS_TO_TICKS(250));
         esp_restart();
+        return;
+    }
+
+    snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/wake", config->base_topic);
+    if (strcmp(topic, expected_topic) == 0) {
+        display_dimming_wake();
+        return;
+    }
+
+    snprintf(expected_topic, sizeof(expected_topic), "%s/set/display_power", config->base_topic);
+    const bool set_display_power = strcmp(topic, expected_topic) == 0;
+    snprintf(expected_topic, sizeof(expected_topic), "%s/state/display_power", config->base_topic);
+    if (set_display_power || strcmp(topic, expected_topic) == 0) {
+        cJSON *display_power = cJSON_Parse(payload);
+        const cJSON *dim_after = cJSON_IsObject(display_power) ? cJSON_GetObjectItemCaseSensitive(display_power, "dim_after") : NULL;
+        const cJSON *off_after = cJSON_IsObject(display_power) ? cJSON_GetObjectItemCaseSensitive(display_power, "off_after") : NULL;
+        const cJSON *dim_percent = cJSON_IsObject(display_power) ? cJSON_GetObjectItemCaseSensitive(display_power, "dim_percent") : NULL;
+        if (!cJSON_IsNumber(dim_after) || !cJSON_IsNumber(off_after) || !cJSON_IsNumber(dim_percent) ||
+            dim_after->valuedouble < 0 || dim_after->valuedouble > 86400 || off_after->valuedouble < 0 ||
+            off_after->valuedouble > 86400 || dim_percent->valuedouble < 0 || dim_percent->valuedouble > 100 ||
+            display_dimming_set_config((uint32_t) dim_after->valuedouble, (uint32_t) off_after->valuedouble,
+                                       (uint8_t) dim_percent->valuedouble) != ESP_OK) {
+            ESP_LOGW(TAG, "Ignoring invalid display-power configuration");
+            cJSON_Delete(display_power);
+            return;
+        }
+        cJSON_Delete(display_power);
+        if (set_display_power) {
+            ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/display_power", payload, true));
+        }
         return;
     }
 
@@ -360,6 +400,7 @@ void app_main(void) {
 
     ESP_ERROR_CHECK(display_board_init(&board));
     ESP_ERROR_CHECK(ui_init(&board));
+    ESP_ERROR_CHECK(display_dimming_init());
     ui_set_connection_status("Connecting Wi-Fi...");
     ui_set_wifi_state("WiFi...");
     ui_set_mqtt_state("MQTT...");
