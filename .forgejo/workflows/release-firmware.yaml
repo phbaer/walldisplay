@@ -100,6 +100,22 @@ jobs:
             echo "CHANGELOG_NOTES"
           } >> "$FORGEJO_OUTPUT"
 
+      - name: Publish changelog to Forgejo wiki
+        if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
+        run: |
+          AUTH="$(printf 'x-access-token:%s' "$FORGEJO_TOKEN" | base64 -w 0)"
+          WIKI_URL="${FORGEJO_SERVER_URL}/${FORGEJO_REPOSITORY}.wiki.git"
+          git -c "http.extraHeader=AUTHORIZATION: basic $AUTH" clone "$WIKI_URL" wiki
+          cp dist/CHANGELOG.md wiki/Changelog.md
+          git -C wiki add Changelog.md
+          if git -C wiki diff --cached --quiet; then
+            exit 0
+          fi
+          git -C wiki config user.name "Forgejo Actions"
+          git -C wiki config user.email "actions@forgejo.local"
+          git -C wiki commit -m "docs: update changelog for ${VERSION} [skip ci]"
+          git -C wiki -c "http.extraHeader=AUTHORIZATION: basic $AUTH" push origin HEAD
+
       - name: Publish Forgejo release assets
         if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
         uses: https://data.forgejo.org/actions/forgejo-release@98265452477dafb3f0f27ba9c462c90b18cb44fd # v2.13.4
