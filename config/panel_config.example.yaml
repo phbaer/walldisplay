@@ -1,0 +1,13 @@
+wifi:
+  ssid: "YOUR_WIFI_SSID"
+  password: "YOUR_WIFI_PASSWORD"
+
+mqtt:
+  uri: "mqtt://homeassistant.local:1883"
+  username: "mqtt-user"
+  password: "mqtt-password"
+
+homeassistant:
+  discovery_prefix: "homeassistant"
+  base_topic: "panel/guition-4848s040"
+  enable_discovery: true

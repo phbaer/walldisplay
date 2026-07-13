@@ -1,0 +1,114 @@
+# Home Assistant automation template for wall panel MQTT updates.
+#
+# Drop this into your HA automations (or as a package), then adjust:
+# - panel_topic
+# - weather_entity
+# - media_entity
+# - status_entity (optional helper)
+
+automation:
+  - id: walldisplay_mqtt_sync
+    alias: WallDisplay MQTT Sync
+    mode: queued
+    variables:
+      panel_topic: panel/guition-4848s040
+      weather_entity: weather.home
+      media_entity: media_player.living_room
+      status_entity: input_text.wall_panel_status
+    triggers:
+      - id: startup
+        trigger: homeassistant
+        event: start
+
+      - id: clock
+        trigger: time_pattern
+        minutes: "/1"
+
+      - id: weather
+        trigger: state
+        entity_id: weather.home
+
+      - id: weather_refresh
+        trigger: time_pattern
+        minutes: "/30"
+
+      - id: media
+        trigger: state
+        entity_id: media_player.living_room
+
+      - id: status
+        trigger: state
+        entity_id: input_text.wall_panel_status
+
+    actions:
+      - choose:
+          - conditions: "{{ trigger.id in ['clock', 'startup'] }}"
+            sequence:
+              - action: mqtt.publish
+                data:
+                  topic: "{{ panel_topic }}/set/clock"
+                  qos: 1
+                  retain: true
+                  payload: "{{ now().strftime('%H:%M') }}"
+
+          - conditions: "{{ trigger.id in ['weather', 'weather_refresh', 'startup'] }}"
+            sequence:
+              - action: weather.get_forecasts
+                target:
+                  entity_id: "{{ weather_entity }}"
+                data:
+                  type: daily
+                response_variable: daily_forecast
+              - action: mqtt.publish
+                data:
+                  topic: "{{ panel_topic }}/set/weather"
+                  qos: 1
+                  retain: true
+                  payload: >-
+                    {% set condition = states(weather_entity) %}
+                    {% set temp = state_attr(weather_entity, 'temperature') %}
+                    {% set forecast = daily_forecast[weather_entity]['forecast'] | default([], true) %}
+                    {% set ns = namespace(days=[]) %}
+                    {% for item in forecast[:3] %}
+                      {% set ns.days = ns.days + [{
+                        'day': as_datetime(item.datetime).strftime('%a'),
+                        'condition': item.condition,
+                        'high': item.temperature,
+                        'low': item.templow | default(item.temperature, true)
+                      }] %}
+                    {% endfor %}
+                    {{ {
+                      'condition': condition,
+                      'temperature': temp if temp is number else none,
+                      'forecast': ns.days
+                    } | tojson }}
+
+          - conditions: "{{ trigger.id in ['media', 'startup'] }}"
+            sequence:
+              - action: mqtt.publish
+                data:
+                  topic: "{{ panel_topic }}/set/media"
+                  qos: 1
+                  retain: true
+                  payload: >-
+                    {% set state = states(media_entity) %}
+                    {% set title = state_attr(media_entity, 'media_title') %}
+                    {% set artist = state_attr(media_entity, 'media_artist') %}
+                    {% if state in ['playing', 'paused'] and title %}
+                      {{ title }}{% if artist %} - {{ artist }}{% endif %}
+                    {% elif state in ['off', 'idle', 'standby'] %}
+                      Media idle
+                    {% else %}
+                      {{ state | title }}
+                    {% endif %}
+
+          - conditions: "{{ trigger.id in ['status', 'startup'] }}"
+            sequence:
+              - action: mqtt.publish
+                data:
+                  topic: "{{ panel_topic }}/set/status"
+                  qos: 1
+                  retain: true
+                  payload: >-
+                    {% set txt = states(status_entity) %}
+                    {{ 'Ready' if txt in ['unknown', 'unavailable', ''] else txt }}

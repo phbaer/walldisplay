@@ -1,0 +1,854 @@
+blueprint:
+  name: WallDisplay MQTT Sync v0.1.0 (Contract 1)
+  description: >-
+    Publish panel name, clock, weather, media, dynamic footer button labels, and optional header measurement chips
+    to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
+  domain: automation
+  source_url: https://example.invalid/walldisplay/blueprint
+  input:
+    panel_topic:
+      name: Panel MQTT topic prefix
+      description: Base topic of the panel, e.g. panel/guition-4848s040
+      selector:
+        text:
+    panel_name:
+      name: Panel name
+      description: Header title displayed on the panel.
+      default: Living Room
+      selector:
+        text:
+    weather_entity:
+      name: Weather entity
+      selector:
+        entity:
+          domain: weather
+    media_entity:
+      name: Media player entity
+      selector:
+        entity:
+          domain: media_player
+    chip1_sensor:
+      name: Header measurement chip 1 sensor
+      description: Optional. Leave empty to hide this chip.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    chip1_warn_above:
+      name: Chip 1 warning threshold (>)
+      default: 0
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.1
+          mode: box
+    chip1_alert_above:
+      name: Chip 1 alert threshold (>)
+      default: 0
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.1
+          mode: box
+    chip2_sensor:
+      name: Header measurement chip 2 sensor
+      description: Optional. Leave empty to hide this chip.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    chip2_warn_above:
+      name: Chip 2 warning threshold (>)
+      default: 0
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.1
+          mode: box
+    chip2_alert_above:
+      name: Chip 2 alert threshold (>)
+      default: 0
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.1
+          mode: box
+    chip3_sensor:
+      name: Header measurement chip 3 sensor
+      description: Optional. Leave empty to hide this chip.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    chip3_warn_above:
+      name: Chip 3 warning threshold (>)
+      default: 0
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.1
+          mode: box
+    chip3_alert_above:
+      name: Chip 3 alert threshold (>)
+      default: 0
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.1
+          mode: box
+    chip4_sensor:
+      name: Header measurement chip 4 sensor
+      description: Optional. Leave empty to hide this chip.
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    chip4_warn_above:
+      name: Chip 4 warning threshold (>)
+      default: 0
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.1
+          mode: box
+    chip4_alert_above:
+      name: Chip 4 alert threshold (>)
+      default: 0
+      selector:
+        number:
+          min: -1000
+          max: 1000
+          step: 0.1
+          mode: box
+    chip_ok_color:
+      name: Color payload for normal state
+      description: Named value (ok/green/etc.) or hex like #2B8A3E
+      default: ok
+      selector:
+        text:
+    chip_warn_color:
+      name: Color payload for warning state
+      description: Named value (warn/amber/etc.) or hex like #A67E34
+      default: warn
+      selector:
+        text:
+    chip_alert_color:
+      name: Color payload for alert state
+      description: Named value (alert/red/etc.) or hex like #9F2E3A
+      default: alert
+      selector:
+        text:
+    chip_neutral_color:
+      name: Color payload for non-numeric state
+      description: Named value (neutral/blue/etc.) or hex like #171B21
+      default: neutral
+      selector:
+        text:
+    button1_label:
+      name: Button 1 label
+      default: ""
+      selector:
+        text:
+    button1_state_entity:
+      name: Button 1 state entity
+      description: Optional toggleable entity. Its current state is shown on the panel and a panel or device-page press toggles it. Leave empty for an action-only button.
+      default: ""
+      selector:
+        entity:
+    button2_label:
+      name: Button 2 label
+      default: ""
+      selector:
+        text:
+    button2_state_entity:
+      name: Button 2 state entity
+      description: Optional toggleable entity. Its current state is shown on the panel and a panel or device-page press toggles it. Leave empty for an action-only button.
+      default: ""
+      selector:
+        entity:
+    button3_label:
+      name: Button 3 label
+      default: ""
+      selector:
+        text:
+    button3_state_entity:
+      name: Button 3 state entity
+      description: Optional toggleable entity. Its current state is shown on the panel and a panel or device-page press toggles it. Leave empty for an action-only button.
+      default: ""
+      selector:
+        entity:
+    button4_label:
+      name: Button 4 label
+      default: ""
+      selector:
+        text:
+    button4_state_entity:
+      name: Button 4 state entity
+      description: Optional toggleable entity. Its current state is shown on the panel and a panel or device-page press toggles it. Leave empty for an action-only button.
+      default: ""
+      selector:
+        entity:
+    button5_label:
+      name: Button 5 label
+      default: ""
+      selector:
+        text:
+    button5_state_entity:
+      name: Button 5 state entity
+      description: Optional toggleable entity. Its current state is shown on the panel and a panel or device-page press toggles it. Leave empty for an action-only button.
+      default: ""
+      selector:
+        entity:
+    button1_action:
+      name: Button 1 action
+      default: []
+      selector:
+        action: {}
+    button2_action:
+      name: Button 2 action
+      default: []
+      selector:
+        action: {}
+    button3_action:
+      name: Button 3 action
+      default: []
+      selector:
+        action: {}
+    button4_action:
+      name: Button 4 action
+      default: []
+      selector:
+        action: {}
+    button5_action:
+      name: Button 5 action
+      default: []
+      selector:
+        action: {}
+
+# Preserve every panel trigger in order without an intentional debounce delay.
+# In particular, a press must never be discarded while a synchronization runs.
+mode: queued
+max: 20
+max_exceeded: warning
+trace:
+  stored_traces: 20
+
+variables:
+  blueprint_version: "0.1.0"
+  panel_contract_version: "1"
+  panel_topic: !input panel_topic
+  panel_name: !input panel_name
+  weather_entity: !input weather_entity
+  media_entity: !input media_entity
+  chip1_sensor: !input chip1_sensor
+  chip1_warn_above: !input chip1_warn_above
+  chip1_alert_above: !input chip1_alert_above
+  chip2_sensor: !input chip2_sensor
+  chip2_warn_above: !input chip2_warn_above
+  chip2_alert_above: !input chip2_alert_above
+  chip3_sensor: !input chip3_sensor
+  chip3_warn_above: !input chip3_warn_above
+  chip3_alert_above: !input chip3_alert_above
+  chip4_sensor: !input chip4_sensor
+  chip4_warn_above: !input chip4_warn_above
+  chip4_alert_above: !input chip4_alert_above
+  chip_ok_color: !input chip_ok_color
+  chip_warn_color: !input chip_warn_color
+  chip_alert_color: !input chip_alert_color
+  chip_neutral_color: !input chip_neutral_color
+  button1_label: !input button1_label
+  button1_state_entity: !input button1_state_entity
+  button2_label: !input button2_label
+  button2_state_entity: !input button2_state_entity
+  button3_label: !input button3_label
+  button3_state_entity: !input button3_state_entity
+  button4_label: !input button4_label
+  button4_state_entity: !input button4_state_entity
+  button5_label: !input button5_label
+  button5_state_entity: !input button5_state_entity
+
+trigger_variables:
+  panel_topic: !input panel_topic
+
+triggers:
+  - id: startup
+    trigger: homeassistant
+    event: start
+
+  - id: automation_reload
+    trigger: event
+    event_type: automation_reloaded
+
+  - id: panel_online
+    trigger: mqtt
+    topic: "{{ panel_topic }}/status"
+    payload: "online"
+
+  - id: panel_sync
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/sync"
+
+  - id: clock
+    trigger: time_pattern
+    minutes: "/1"
+
+  # Input changes in a UI-created blueprint automation do not emit an event.
+  # Refreshing guarantees labels and state configuration reach the panel without
+  # creating an immediate MQTT burst.
+  - id: panel_refresh
+    trigger: time_pattern
+    minutes: "/5"
+
+  - id: weather
+    trigger: state
+    entity_id: !input weather_entity
+
+  - id: weather_refresh
+    trigger: time_pattern
+    minutes: "/30"
+
+  - id: media
+    trigger: state
+    entity_id: !input media_entity
+
+  - id: chip1
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input chip1_sensor
+
+  - id: chip2
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input chip2_sensor
+
+  - id: chip3
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input chip3_sensor
+
+  - id: chip4
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input chip4_sensor
+
+  - id: btn1_press
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/button1"
+
+  - id: btn2_press
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/button2"
+
+  - id: btn3_press
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/button3"
+
+  - id: btn4_press
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/button4"
+
+  - id: btn5_press
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/button5"
+
+  # Do not subscribe to the global state_changed event: it queues a run for
+  # every entity in Home Assistant. Each optional footer button instead filters
+  # the state_changed event by entity_id; an empty optional input simply matches
+  # no events and is valid in the event payload.
+  - id: button1_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input button1_state_entity
+
+  - id: button2_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input button2_state_entity
+
+  - id: button3_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input button3_state_entity
+
+  - id: button4_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input button4_state_entity
+
+  - id: button5_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input button5_state_entity
+
+actions:
+  - choose:
+      - conditions: "{{ trigger.id in ['startup', 'automation_reload', 'panel_online', 'panel_sync', 'panel_refresh'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/name"
+              qos: 1
+              retain: true
+              payload: "{{ panel_name }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/blueprint_info"
+              qos: 1
+              retain: true
+              payload: "{{ {'version': blueprint_version, 'contract': panel_contract_version} | tojson }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button1/label"
+              qos: 1
+              retain: true
+              payload: "{{ button1_label }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button1/state"
+              qos: 1
+              retain: true
+              payload: "{{ states(button1_state_entity) if button1_state_entity | length > 0 else 'stateless' }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button2/label"
+              qos: 1
+              retain: true
+              payload: "{{ button2_label }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button2/state"
+              qos: 1
+              retain: true
+              payload: "{{ states(button2_state_entity) if button2_state_entity | length > 0 else 'stateless' }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button3/label"
+              qos: 1
+              retain: true
+              payload: "{{ button3_label }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button3/state"
+              qos: 1
+              retain: true
+              payload: "{{ states(button3_state_entity) if button3_state_entity | length > 0 else 'stateless' }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button4/label"
+              qos: 1
+              retain: true
+              payload: "{{ button4_label }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button4/state"
+              qos: 1
+              retain: true
+              payload: "{{ states(button4_state_entity) if button4_state_entity | length > 0 else 'stateless' }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button5/label"
+              qos: 1
+              retain: true
+              payload: "{{ button5_label }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button5/state"
+              qos: 1
+              retain: true
+              payload: "{{ states(button5_state_entity) if button5_state_entity | length > 0 else 'stateless' }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/clock"
+              qos: 1
+              retain: true
+              payload: "{{ now().strftime('%H:%M') }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/date"
+              qos: 1
+              retain: true
+              payload: "{{ now().strftime('%a, %d %b') }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip1"
+              qos: 1
+              retain: true
+              payload: "{{ states(chip1_sensor) ~ (' ' ~ state_attr(chip1_sensor, 'unit_of_measurement') if state_attr(chip1_sensor, 'unit_of_measurement') else '') if chip1_sensor | length > 0 else '' }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip1/color"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set raw = states(chip1_sensor) %}
+                {% set val = raw | float(default=none) %}
+                {% if val is number %}
+                  {% if val > chip1_alert_above %}{{ chip_alert_color }}
+                  {% elif val > chip1_warn_above %}{{ chip_warn_color }}
+                  {% else %}{{ chip_ok_color }}{% endif %}
+                {% else %}{{ chip_neutral_color }}{% endif %}
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip2"
+              qos: 1
+              retain: true
+              payload: "{{ states(chip2_sensor) ~ (' ' ~ state_attr(chip2_sensor, 'unit_of_measurement') if state_attr(chip2_sensor, 'unit_of_measurement') else '') if chip2_sensor | length > 0 else '' }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip2/color"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set raw = states(chip2_sensor) %}
+                {% set val = raw | float(default=none) %}
+                {% if val is number %}
+                  {% if val > chip2_alert_above %}{{ chip_alert_color }}
+                  {% elif val > chip2_warn_above %}{{ chip_warn_color }}
+                  {% else %}{{ chip_ok_color }}{% endif %}
+                {% else %}{{ chip_neutral_color }}{% endif %}
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip3"
+              qos: 1
+              retain: true
+              payload: "{{ states(chip3_sensor) ~ (' ' ~ state_attr(chip3_sensor, 'unit_of_measurement') if state_attr(chip3_sensor, 'unit_of_measurement') else '') if chip3_sensor | length > 0 else '' }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip3/color"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set raw = states(chip3_sensor) %}
+                {% set val = raw | float(default=none) %}
+                {% if val is number %}
+                  {% if val > chip3_alert_above %}{{ chip_alert_color }}
+                  {% elif val > chip3_warn_above %}{{ chip_warn_color }}
+                  {% else %}{{ chip_ok_color }}{% endif %}
+                {% else %}{{ chip_neutral_color }}{% endif %}
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip4"
+              qos: 1
+              retain: true
+              payload: "{{ states(chip4_sensor) ~ (' ' ~ state_attr(chip4_sensor, 'unit_of_measurement') if state_attr(chip4_sensor, 'unit_of_measurement') else '') if chip4_sensor | length > 0 else '' }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip4/color"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set raw = states(chip4_sensor) %}
+                {% set val = raw | float(default=none) %}
+                {% if val is number %}
+                  {% if val > chip4_alert_above %}{{ chip_alert_color }}
+                  {% elif val > chip4_warn_above %}{{ chip_warn_color }}
+                  {% else %}{{ chip_ok_color }}{% endif %}
+                {% else %}{{ chip_neutral_color }}{% endif %}
+
+  - choose:
+      - conditions: "{{ trigger.id in ['clock', 'startup', 'panel_online', 'panel_sync'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/clock"
+              qos: 1
+              retain: true
+              payload: "{{ now().strftime('%H:%M') }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/date"
+              qos: 1
+              retain: true
+              payload: "{{ now().strftime('%a, %d %b') }}"
+
+  - choose:
+      - conditions: "{{ trigger.id in ['weather', 'weather_refresh', 'startup', 'panel_online', 'panel_sync'] }}"
+        sequence:
+          - action: weather.get_forecasts
+            target:
+              entity_id: !input weather_entity
+            data:
+              type: daily
+            response_variable: daily_forecast
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/weather"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set condition = states(weather_entity) %}
+                {% set temp = state_attr(weather_entity, 'temperature') %}
+                {% set forecast = daily_forecast[weather_entity]['forecast'] | default([], true) %}
+                {% set ns = namespace(days=[]) %}
+                {% for item in forecast[:3] %}
+                  {% set ns.days = ns.days + [{
+                    'day': as_datetime(item.datetime).strftime('%a'),
+                    'condition': item.condition,
+                    'high': item.temperature,
+                    'low': item.templow | default(item.temperature, true)
+                  }] %}
+                {% endfor %}
+                {{ {
+                  'condition': condition,
+                  'temperature': temp if temp is number else none,
+                  'forecast': ns.days
+                } | tojson }}
+
+  - choose:
+      - conditions: "{{ trigger.id in ['media', 'startup', 'panel_online', 'panel_sync'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/media"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set state = states(media_entity) %}
+                {% set title = state_attr(media_entity, 'media_title') %}
+                {% set artist = state_attr(media_entity, 'media_artist') %}
+                {% if state in ['playing', 'paused'] and title %}
+                  {{ title }}{% if artist %} - {{ artist }}{% endif %}
+                {% elif state in ['off', 'idle', 'standby'] %}
+                  Media idle
+                {% else %}
+                  {{ state | title }}
+                {% endif %}
+
+  - choose:
+      - conditions: "{{ chip1_sensor | length > 0 and trigger.id in ['chip1', 'startup', 'panel_online', 'panel_sync'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip1"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set val = states(chip1_sensor) %}
+                {% set unit = state_attr(chip1_sensor, 'unit_of_measurement') %}
+                {{ val }}{% if unit %} {{ unit }}{% endif %}
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip1/color"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set raw = states(chip1_sensor) %}
+                {% set val = raw | float(default=none) %}
+                {% if val is number %}
+                  {% if val > chip1_alert_above %}
+                    {{ chip_alert_color }}
+                  {% elif val > chip1_warn_above %}
+                    {{ chip_warn_color }}
+                  {% else %}
+                    {{ chip_ok_color }}
+                  {% endif %}
+                {% else %}
+                  {{ chip_neutral_color }}
+                {% endif %}
+
+  - choose:
+      - conditions: "{{ chip2_sensor | length > 0 and trigger.id in ['chip2', 'startup', 'panel_online', 'panel_sync'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip2"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set val = states(chip2_sensor) %}
+                {% set unit = state_attr(chip2_sensor, 'unit_of_measurement') %}
+                {{ val }}{% if unit %} {{ unit }}{% endif %}
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip2/color"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set raw = states(chip2_sensor) %}
+                {% set val = raw | float(default=none) %}
+                {% if val is number %}
+                  {% if val > chip2_alert_above %}
+                    {{ chip_alert_color }}
+                  {% elif val > chip2_warn_above %}
+                    {{ chip_warn_color }}
+                  {% else %}
+                    {{ chip_ok_color }}
+                  {% endif %}
+                {% else %}
+                  {{ chip_neutral_color }}
+                {% endif %}
+
+  - choose:
+      - conditions: "{{ chip3_sensor | length > 0 and trigger.id in ['chip3', 'startup', 'panel_online', 'panel_sync'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip3"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set val = states(chip3_sensor) %}
+                {% set unit = state_attr(chip3_sensor, 'unit_of_measurement') %}
+                {{ val }}{% if unit %} {{ unit }}{% endif %}
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip3/color"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set raw = states(chip3_sensor) %}
+                {% set val = raw | float(default=none) %}
+                {% if val is number %}
+                  {% if val > chip3_alert_above %}
+                    {{ chip_alert_color }}
+                  {% elif val > chip3_warn_above %}
+                    {{ chip_warn_color }}
+                  {% else %}
+                    {{ chip_ok_color }}
+                  {% endif %}
+                {% else %}
+                  {{ chip_neutral_color }}
+                {% endif %}
+
+  - choose:
+      - conditions: "{{ chip4_sensor | length > 0 and trigger.id in ['chip4', 'startup', 'panel_online', 'panel_sync'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip4"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set val = states(chip4_sensor) %}
+                {% set unit = state_attr(chip4_sensor, 'unit_of_measurement') %}
+                {{ val }}{% if unit %} {{ unit }}{% endif %}
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/chip4/color"
+              qos: 1
+              retain: true
+              payload: >-
+                {% set raw = states(chip4_sensor) %}
+                {% set val = raw | float(default=none) %}
+                {% if val is number %}
+                  {% if val > chip4_alert_above %}
+                    {{ chip_alert_color }}
+                  {% elif val > chip4_warn_above %}
+                    {{ chip_warn_color }}
+                  {% else %}
+                    {{ chip_ok_color }}
+                  {% endif %}
+                {% else %}
+                  {{ chip_neutral_color }}
+                {% endif %}
+
+  - choose:
+      - conditions: "{{ trigger.id == 'button1_state' }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button1/state"
+              qos: 1
+              retain: true
+              payload: "{{ states(button1_state_entity) }}"
+
+  - choose:
+      - conditions: "{{ trigger.id == 'button2_state' }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button2/state"
+              qos: 1
+              retain: true
+              payload: "{{ states(button2_state_entity) }}"
+
+  - choose:
+      - conditions: "{{ trigger.id == 'button3_state' }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button3/state"
+              qos: 1
+              retain: true
+              payload: "{{ states(button3_state_entity) }}"
+
+  - choose:
+      - conditions: "{{ trigger.id == 'button4_state' }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button4/state"
+              qos: 1
+              retain: true
+              payload: "{{ states(button4_state_entity) }}"
+
+  - choose:
+      - conditions: "{{ trigger.id == 'button5_state' }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/button5/state"
+              qos: 1
+              retain: true
+              payload: "{{ states(button5_state_entity) }}"
+
+  - choose:
+      - conditions: "{{ trigger.id == 'btn1_press' and button1_label | length > 0 and button1_state_entity | length > 0 }}"
+        sequence:
+          - action: homeassistant.toggle
+            target:
+              entity_id: "{{ button1_state_entity }}"
+      - conditions: "{{ trigger.id == 'btn1_press' and button1_label | length > 0 and button1_state_entity | length == 0 }}"
+        sequence: !input button1_action
+
+  - choose:
+      - conditions: "{{ trigger.id == 'btn2_press' and button2_label | length > 0 and button2_state_entity | length > 0 }}"
+        sequence:
+          - action: homeassistant.toggle
+            target:
+              entity_id: "{{ button2_state_entity }}"
+      - conditions: "{{ trigger.id == 'btn2_press' and button2_label | length > 0 and button2_state_entity | length == 0 }}"
+        sequence: !input button2_action
+
+  - choose:
+      - conditions: "{{ trigger.id == 'btn3_press' and button3_label | length > 0 and button3_state_entity | length > 0 }}"
+        sequence:
+          - action: homeassistant.toggle
+            target:
+              entity_id: "{{ button3_state_entity }}"
+      - conditions: "{{ trigger.id == 'btn3_press' and button3_label | length > 0 and button3_state_entity | length == 0 }}"
+        sequence: !input button3_action
+
+  - choose:
+      - conditions: "{{ trigger.id == 'btn4_press' and button4_label | length > 0 and button4_state_entity | length > 0 }}"
+        sequence:
+          - action: homeassistant.toggle
+            target:
+              entity_id: "{{ button4_state_entity }}"
+      - conditions: "{{ trigger.id == 'btn4_press' and button4_label | length > 0 and button4_state_entity | length == 0 }}"
+        sequence: !input button4_action
+
+  - choose:
+      - conditions: "{{ trigger.id == 'btn5_press' and button5_label | length > 0 and button5_state_entity | length > 0 }}"
+        sequence:
+          - action: homeassistant.toggle
+            target:
+              entity_id: "{{ button5_state_entity }}"
+      - conditions: "{{ trigger.id == 'btn5_press' and button5_label | length > 0 and button5_state_entity | length == 0 }}"
+        sequence: !input button5_action

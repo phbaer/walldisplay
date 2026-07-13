@@ -1,0 +1,101 @@
+name: Release firmware
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional existing v* tag to publish (leave empty for a build only)
+        required: false
+        type: string
+
+jobs:
+  release:
+    # The local runner selects the job; the container provides ESP-IDF and Python.
+    runs-on: node
+    container:
+      image: espressif/idf:v6.0.2
+    steps:
+      - name: Check out release source
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [ -n "$REQUESTED_TAG" ]; then
+            REF="refs/tags/$REQUESTED_TAG"
+          else
+            REF="${FORGEJO_REF:-refs/heads/$FORGEJO_REF_NAME}"
+          fi
+          AUTH="$(printf 'x-access-token:%s' "$FORGEJO_TOKEN" | base64 -w 0)"
+          git init .
+          git remote add origin "$FORGEJO_SERVER_URL/$FORGEJO_REPOSITORY.git"
+          git -c "http.extraHeader=AUTHORIZATION: basic $AUTH" fetch --depth=1 origin "$REF"
+          git checkout --detach FETCH_HEAD
+
+      - name: Select release version
+        id: release
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [ -n "$REQUESTED_TAG" ]; then
+            VERSION="$REQUESTED_TAG"
+          elif [[ "${FORGEJO_REF:-}" == refs/tags/* ]]; then
+            VERSION="$FORGEJO_REF_NAME"
+          else
+            VERSION="dev-${FORGEJO_SHA:0:7}"
+          fi
+          case "$VERSION" in
+            v[0-9]*|dev-??????? ) ;;
+            * ) echo "Release tags must begin with v (got: $VERSION)" >&2; exit 1 ;;
+          esac
+          RELEASE_SHA="$(git rev-parse HEAD)"
+          echo "VERSION=$VERSION" >> "$FORGEJO_ENV"
+          echo "version=$VERSION" >> "$FORGEJO_OUTPUT"
+          echo "sha=$RELEASE_SHA" >> "$FORGEJO_OUTPUT"
+
+      - name: Build ESP32-S3 firmware
+        run: |
+          test -f config/panel_config.yaml || cp config/panel_config.example.yaml config/panel_config.yaml
+          . /opt/esp/idf/export.sh
+          idf.py set-target esp32s3
+          idf.py build
+
+      - name: Create firmware package and OTA manifest
+        run: |
+          mkdir -p dist/factory
+          cp build/walldisplay.bin "dist/walldisplay-${VERSION}.bin"
+          cp build/bootloader/bootloader.bin dist/factory/
+          cp build/partition_table/partition-table.bin dist/factory/
+          cp "dist/walldisplay-${VERSION}.bin" dist/factory/walldisplay.bin
+          cp partitions.csv dist/factory/
+          tar -C dist/factory -czf "dist/walldisplay-${VERSION}-factory.tar.gz" .
+          SHA256="$(sha256sum "dist/walldisplay-${VERSION}.bin" | awk '{print $1}')"
+          SIZE="$(wc -c < "dist/walldisplay-${VERSION}.bin" | tr -d ' ')"
+          OTA_URL="${FORGEJO_SERVER_URL}/${FORGEJO_REPOSITORY}/releases/download/${VERSION}/walldisplay-${VERSION}.bin"
+          export VERSION SHA256 SIZE OTA_URL
+          python3 -c 'import json, os; print(json.dumps({"version": os.environ["VERSION"], "target": "esp32s3", "url": os.environ["OTA_URL"], "sha256": os.environ["SHA256"], "size": int(os.environ["SIZE"]), "build": os.environ.get("FORGEJO_SHA", "")}, indent=2))' > "dist/walldisplay-${VERSION}.json"
+
+      - name: Prepare Forgejo release publisher
+        if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends nodejs jq curl
+
+      - name: Publish Forgejo release assets
+        if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
+        uses: https://data.forgejo.org/actions/forgejo-release@98265452477dafb3f0f27ba9c462c90b18cb44fd # v2.13.4
+        with:
+          direction: upload
+          url: ${{ forgejo.server_url }}
+          repo: ${{ forgejo.repository }}
+          tag: ${{ steps.release.outputs.version }}
+          title: Wall Display ${{ steps.release.outputs.version }}
+          sha: ${{ steps.release.outputs.sha }}
+          token: ${{ forgejo.token }}
+          release-dir: dist
+          release-notes: ESP32-S3 firmware release. Use the JSON manifest for HTTPS OTA or the factory archive for serial flashing.
+          prerelease: ${{ contains(steps.release.outputs.version, '-') }}
+          override: true
