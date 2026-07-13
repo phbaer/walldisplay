@@ -84,15 +84,16 @@ jobs:
         if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends jq curl python3-pip
-          python3 -m pip install --no-cache-dir git-cliff==2.13.1
+          apt-get install -y --no-install-recommends jq curl python3-venv
+          python3 -m venv /tmp/git-cliff-venv
+          /tmp/git-cliff-venv/bin/pip install --no-cache-dir git-cliff==2.13.1
 
       - name: Compute changelog and release notes
         id: changelog
         if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
         run: |
-          git-cliff --tag "$VERSION" --output dist/CHANGELOG.md
-          NOTES="$(git-cliff --tag "$VERSION" --unreleased --strip all 2>/dev/null || git-cliff --latest --strip all)"
+          /tmp/git-cliff-venv/bin/git-cliff --tag "$VERSION" --output dist/CHANGELOG.md
+          NOTES="$(/tmp/git-cliff-venv/bin/git-cliff --tag "$VERSION" --unreleased --strip all 2>/dev/null || /tmp/git-cliff-venv/bin/git-cliff --latest --strip all)"
           {
             echo "notes<<CHANGELOG_NOTES"
             printf '%s\n' "$NOTES"
