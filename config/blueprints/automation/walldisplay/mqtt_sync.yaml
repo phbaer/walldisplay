@@ -1,7 +1,7 @@
 blueprint:
-  name: WallDisplay MQTT Sync v0.2.1 (Contract 2)
+  name: WallDisplay MQTT Sync v0.3.0 (Contract 3)
   description: >-
-    Publish panel name, clock, weather, media, dynamic footer button labels, and optional header measurement chips
+    Publish panel name, clock, weather, rich media controls and favourites, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
   homeassistant:
     min_version: 2024.10.0
@@ -29,6 +29,71 @@ blueprint:
       selector:
         entity:
           domain: media_player
+    media_favorite1_label:
+      name: Media favourite 1 label
+      default: ""
+      selector: {text: {}}
+    media_favorite1_icon:
+      name: Media favourite 1 symbol
+      default: radio
+      selector: {select: {options: [none, radio, music, album, playlist, podcast]}}
+    media_favorite1_payload:
+      name: Media favourite 1 play-media payload
+      description: JSON service data for media_player.play_media, for example {"media_content_id":"https://radio.example/stream.mp3","media_content_type":"music"}.
+      default: ""
+      selector: {text: {multiline: true}}
+    media_favorite2_label:
+      name: Media favourite 2 label
+      default: ""
+      selector: {text: {}}
+    media_favorite2_icon:
+      name: Media favourite 2 symbol
+      default: radio
+      selector: {select: {options: [none, radio, music, album, playlist, podcast]}}
+    media_favorite2_payload:
+      name: Media favourite 2 play-media payload
+      description: JSON service data for media_player.play_media, for example {"media_content_id":"https://radio.example/stream.mp3","media_content_type":"music"}.
+      default: ""
+      selector: {text: {multiline: true}}
+    media_favorite3_label:
+      name: Media favourite 3 label
+      default: ""
+      selector: {text: {}}
+    media_favorite3_icon:
+      name: Media favourite 3 symbol
+      default: radio
+      selector: {select: {options: [none, radio, music, album, playlist, podcast]}}
+    media_favorite3_payload:
+      name: Media favourite 3 play-media payload
+      description: JSON service data for media_player.play_media, for example {"media_content_id":"https://radio.example/stream.mp3","media_content_type":"music"}.
+      default: ""
+      selector: {text: {multiline: true}}
+    media_favorite4_label:
+      name: Media favourite 4 label
+      default: ""
+      selector: {text: {}}
+    media_favorite4_icon:
+      name: Media favourite 4 symbol
+      default: radio
+      selector: {select: {options: [none, radio, music, album, playlist, podcast]}}
+    media_favorite4_payload:
+      name: Media favourite 4 play-media payload
+      description: JSON service data for media_player.play_media, for example {"media_content_id":"https://radio.example/stream.mp3","media_content_type":"music"}.
+      default: ""
+      selector: {text: {multiline: true}}
+    media_favorite5_label:
+      name: Media favourite 5 label
+      default: ""
+      selector: {text: {}}
+    media_favorite5_icon:
+      name: Media favourite 5 symbol
+      default: radio
+      selector: {select: {options: [none, radio, music, album, playlist, podcast]}}
+    media_favorite5_payload:
+      name: Media favourite 5 play-media payload
+      description: JSON service data for media_player.play_media, for example {"media_content_id":"https://radio.example/stream.mp3","media_content_type":"music"}.
+      default: ""
+      selector: {text: {multiline: true}}
     dim_after:
       name: Dim display after
       description: Seconds without touch or wake activity before dimming. Set to 0 to disable dimming and screen-off.
@@ -282,12 +347,27 @@ trace:
   stored_traces: 20
 
 variables:
-  blueprint_version: "0.2.1"
-  panel_contract_version: "2"
+  blueprint_version: "0.3.0"
+  panel_contract_version: "3"
   panel_topic: !input panel_topic
   panel_name: !input panel_name
   weather_entity: !input weather_entity
   media_entity: !input media_entity
+  media_favorite1_label: !input media_favorite1_label
+  media_favorite1_icon: !input media_favorite1_icon
+  media_favorite1_payload: !input media_favorite1_payload
+  media_favorite2_label: !input media_favorite2_label
+  media_favorite2_icon: !input media_favorite2_icon
+  media_favorite2_payload: !input media_favorite2_payload
+  media_favorite3_label: !input media_favorite3_label
+  media_favorite3_icon: !input media_favorite3_icon
+  media_favorite3_payload: !input media_favorite3_payload
+  media_favorite4_label: !input media_favorite4_label
+  media_favorite4_icon: !input media_favorite4_icon
+  media_favorite4_payload: !input media_favorite4_payload
+  media_favorite5_label: !input media_favorite5_label
+  media_favorite5_icon: !input media_favorite5_icon
+  media_favorite5_payload: !input media_favorite5_payload
   dim_after: !input dim_after
   screen_off_after: !input screen_off_after
   dim_brightness: !input dim_brightness
@@ -408,6 +488,37 @@ triggers:
     trigger: mqtt
     topic: "{{ panel_topic }}/cmd/button5"
 
+  - id: media_previous
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/previous"
+  - id: media_play_pause
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/play_pause"
+  - id: media_next
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/next"
+  - id: media_volume_down
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/volume_down"
+  - id: media_volume_up
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/volume_up"
+  - id: media_favorite1
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/favorite1"
+  - id: media_favorite2
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/favorite2"
+  - id: media_favorite3
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/favorite3"
+  - id: media_favorite4
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/favorite4"
+  - id: media_favorite5
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/favorite5"
+
   # Do not subscribe to the global state_changed event: it queues a run for
   # every entity in Home Assistant. Each optional footer button instead filters
   # the state_changed event by entity_id; an empty optional input simply matches
@@ -458,6 +569,26 @@ actions:
               qos: 1
               retain: true
               payload: "{{ {'version': blueprint_version, 'contract': panel_contract_version} | tojson }}"
+          - action: mqtt.publish
+            data: {topic: "{{ panel_topic }}/set/media/favorite1/label", qos: 1, retain: true, payload: "{{ media_favorite1_label }}"}
+          - action: mqtt.publish
+            data: {topic: "{{ panel_topic }}/set/media/favorite1/icon", qos: 1, retain: true, payload: "{{ media_favorite1_icon }}"}
+          - action: mqtt.publish
+            data: {topic: "{{ panel_topic }}/set/media/favorite2/label", qos: 1, retain: true, payload: "{{ media_favorite2_label }}"}
+          - action: mqtt.publish
+            data: {topic: "{{ panel_topic }}/set/media/favorite2/icon", qos: 1, retain: true, payload: "{{ media_favorite2_icon }}"}
+          - action: mqtt.publish
+            data: {topic: "{{ panel_topic }}/set/media/favorite3/label", qos: 1, retain: true, payload: "{{ media_favorite3_label }}"}
+          - action: mqtt.publish
+            data: {topic: "{{ panel_topic }}/set/media/favorite3/icon", qos: 1, retain: true, payload: "{{ media_favorite3_icon }}"}
+          - action: mqtt.publish
+            data: {topic: "{{ panel_topic }}/set/media/favorite4/label", qos: 1, retain: true, payload: "{{ media_favorite4_label }}"}
+          - action: mqtt.publish
+            data: {topic: "{{ panel_topic }}/set/media/favorite4/icon", qos: 1, retain: true, payload: "{{ media_favorite4_icon }}"}
+          - action: mqtt.publish
+            data: {topic: "{{ panel_topic }}/set/media/favorite5/label", qos: 1, retain: true, payload: "{{ media_favorite5_label }}"}
+          - action: mqtt.publish
+            data: {topic: "{{ panel_topic }}/set/media/favorite5/icon", qos: 1, retain: true, payload: "{{ media_favorite5_icon }}"}
           - action: mqtt.publish
             data:
               topic: "{{ panel_topic }}/set/display_power"
@@ -674,13 +805,14 @@ actions:
                 {% set state = states(media_entity) %}
                 {% set title = state_attr(media_entity, 'media_title') %}
                 {% set artist = state_attr(media_entity, 'media_artist') %}
-                {% if state in ['playing', 'paused'] and title %}
-                  {{ title }}{% if artist %} - {{ artist }}{% endif %}
-                {% elif state in ['off', 'idle', 'standby'] %}
-                  Media idle
-                {% else %}
-                  {{ state | title }}
-                {% endif %}
+                {{ {
+                  'state': state,
+                  'title': title if title else ('Media idle' if state in ['off', 'idle', 'standby'] else state | title),
+                  'artist': artist if artist else '',
+                  'album': state_attr(media_entity, 'media_album_name') | default('', true),
+                  'source': state_attr(media_entity, 'source') | default('', true),
+                  'artwork_url': state_attr(media_entity, 'media_image_url') | default('', true)
+                } | tojson }}
 
   - choose:
       - conditions: "{{ chip1_sensor | length > 0 and trigger.id in ['chip1', 'startup', 'panel_online', 'panel_sync'] }}"
@@ -920,3 +1052,50 @@ actions:
               entity_id: "{{ button5_state_entity }}"
       - conditions: "{{ trigger.id == 'btn5_press' and button5_label | length > 0 and button5_state_entity | length == 0 }}"
         sequence: !input button5_action
+
+  - choose:
+      - conditions: "{{ trigger.id == 'media_previous' }}"
+        sequence:
+          - action: media_player.media_previous_track
+            target: {entity_id: "{{ media_entity }}"}
+      - conditions: "{{ trigger.id == 'media_play_pause' }}"
+        sequence:
+          - action: media_player.media_play_pause
+            target: {entity_id: "{{ media_entity }}"}
+      - conditions: "{{ trigger.id == 'media_next' }}"
+        sequence:
+          - action: media_player.media_next_track
+            target: {entity_id: "{{ media_entity }}"}
+      - conditions: "{{ trigger.id == 'media_volume_down' }}"
+        sequence:
+          - action: media_player.volume_down
+            target: {entity_id: "{{ media_entity }}"}
+      - conditions: "{{ trigger.id == 'media_volume_up' }}"
+        sequence:
+          - action: media_player.volume_up
+            target: {entity_id: "{{ media_entity }}"}
+      - conditions: "{{ trigger.id == 'media_favorite1' and media_favorite1_label | length > 0 and media_favorite1_payload | length > 0 }}"
+        sequence:
+          - action: media_player.play_media
+            target: {entity_id: "{{ media_entity }}"}
+            data: "{{ media_favorite1_payload | from_json }}"
+      - conditions: "{{ trigger.id == 'media_favorite2' and media_favorite2_label | length > 0 and media_favorite2_payload | length > 0 }}"
+        sequence:
+          - action: media_player.play_media
+            target: {entity_id: "{{ media_entity }}"}
+            data: "{{ media_favorite2_payload | from_json }}"
+      - conditions: "{{ trigger.id == 'media_favorite3' and media_favorite3_label | length > 0 and media_favorite3_payload | length > 0 }}"
+        sequence:
+          - action: media_player.play_media
+            target: {entity_id: "{{ media_entity }}"}
+            data: "{{ media_favorite3_payload | from_json }}"
+      - conditions: "{{ trigger.id == 'media_favorite4' and media_favorite4_label | length > 0 and media_favorite4_payload | length > 0 }}"
+        sequence:
+          - action: media_player.play_media
+            target: {entity_id: "{{ media_entity }}"}
+            data: "{{ media_favorite4_payload | from_json }}"
+      - conditions: "{{ trigger.id == 'media_favorite5' and media_favorite5_label | length > 0 and media_favorite5_payload | length > 0 }}"
+        sequence:
+          - action: media_player.play_media
+            target: {entity_id: "{{ media_entity }}"}
+            data: "{{ media_favorite5_payload | from_json }}"

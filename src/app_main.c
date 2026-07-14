@@ -4,7 +4,9 @@
 #include "walldisplay/display_dimming.h"
 #include "walldisplay/ha_discovery.h"
 #include "walldisplay/mqtt_app.h"
+#include "walldisplay/media_artwork.h"
 #include "walldisplay/ota_manager.h"
+#include "walldisplay/screenshot.h"
 #include "walldisplay/ui.h"
 #include "walldisplay/wifi_manager.h"
 
@@ -64,6 +66,17 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
     snprintf(topic, sizeof(topic), "%s/state/media", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
+    for (int i = 1; i <= 5; ++i) {
+        snprintf(topic, sizeof(topic), "%s/set/media/favorite%d/label", config->base_topic, i);
+        esp_mqtt_client_subscribe(client, topic, 1);
+        snprintf(topic, sizeof(topic), "%s/state/media/favorite%d/label", config->base_topic, i);
+        esp_mqtt_client_subscribe(client, topic, 1);
+        snprintf(topic, sizeof(topic), "%s/set/media/favorite%d/icon", config->base_topic, i);
+        esp_mqtt_client_subscribe(client, topic, 1);
+        snprintf(topic, sizeof(topic), "%s/state/media/favorite%d/icon", config->base_topic, i);
+        esp_mqtt_client_subscribe(client, topic, 1);
+    }
+
     snprintf(topic, sizeof(topic), "%s/set/name", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
@@ -92,6 +105,9 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
     esp_mqtt_client_subscribe(client, topic, 1);
 
     snprintf(topic, sizeof(topic), "%s/cmd/wake", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+
+    snprintf(topic, sizeof(topic), "%s/cmd/screenshot", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
     snprintf(topic, sizeof(topic), "%s/set/display_power", config->base_topic);
@@ -189,6 +205,15 @@ static void on_mqtt_message(const char *topic, const char *payload, void *user_c
         return;
     }
 
+    snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/screenshot", config->base_topic);
+    if (strcmp(topic, expected_topic) == 0) {
+        const esp_err_t err = screenshot_request();
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Screenshot request rejected: %s", esp_err_to_name(err));
+        }
+        return;
+    }
+
     snprintf(expected_topic, sizeof(expected_topic), "%s/set/display_power", config->base_topic);
     const bool set_display_power = strcmp(topic, expected_topic) == 0;
     snprintf(expected_topic, sizeof(expected_topic), "%s/state/display_power", config->base_topic);
@@ -229,6 +254,8 @@ static void on_mqtt_message(const char *topic, const char *payload, void *user_c
     snprintf(expected_topic, sizeof(expected_topic), "%s/set/media", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
         ui_set_media_text(payload);
+        cJSON *media = cJSON_Parse(payload); const cJSON *url = cJSON_IsObject(media) ? cJSON_GetObjectItemCaseSensitive(media, "artwork_url") : NULL;
+        if (cJSON_IsString(url)) media_artwork_request(url->valuestring); else media_artwork_request(""); cJSON_Delete(media);
         ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/media", payload, true));
         return;
     }
@@ -236,7 +263,38 @@ static void on_mqtt_message(const char *topic, const char *payload, void *user_c
     snprintf(expected_topic, sizeof(expected_topic), "%s/state/media", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
         ui_set_media_text(payload);
+        cJSON *media = cJSON_Parse(payload); const cJSON *url = cJSON_IsObject(media) ? cJSON_GetObjectItemCaseSensitive(media, "artwork_url") : NULL;
+        if (cJSON_IsString(url)) media_artwork_request(url->valuestring); else media_artwork_request(""); cJSON_Delete(media);
         return;
+    }
+
+    for (int i = 1; i <= 5; ++i) {
+        snprintf(expected_topic, sizeof(expected_topic), "%s/set/media/favorite%d/label", config->base_topic, i);
+        if (strcmp(topic, expected_topic) == 0) {
+            ui_set_media_favorite_label((size_t)(i - 1), payload);
+            char suffix[48];
+            snprintf(suffix, sizeof(suffix), "state/media/favorite%d/label", i);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic(suffix, payload, true));
+            return;
+        }
+        snprintf(expected_topic, sizeof(expected_topic), "%s/state/media/favorite%d/label", config->base_topic, i);
+        if (strcmp(topic, expected_topic) == 0) {
+            ui_set_media_favorite_label((size_t)(i - 1), payload);
+            return;
+        }
+        snprintf(expected_topic, sizeof(expected_topic), "%s/set/media/favorite%d/icon", config->base_topic, i);
+        if (strcmp(topic, expected_topic) == 0) {
+            ui_set_media_favorite_icon((size_t)(i - 1), payload);
+            char suffix[48];
+            snprintf(suffix, sizeof(suffix), "state/media/favorite%d/icon", i);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic(suffix, payload, true));
+            return;
+        }
+        snprintf(expected_topic, sizeof(expected_topic), "%s/state/media/favorite%d/icon", config->base_topic, i);
+        if (strcmp(topic, expected_topic) == 0) {
+            ui_set_media_favorite_icon((size_t)(i - 1), payload);
+            return;
+        }
     }
 
     snprintf(expected_topic, sizeof(expected_topic), "%s/set/name", config->base_topic);
@@ -393,12 +451,17 @@ void app_main(void) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(app_config_init());
+    ESP_ERROR_CHECK(media_artwork_init());
     ESP_ERROR_CHECK(ota_manager_init(publish_runtime_topic));
     ESP_ERROR_CHECK(device_info_init(publish_runtime_topic));
 
     ESP_LOGI(TAG, "Starting %s (%s)", APP_DEVICE_NAME, APP_FW_VERSION);
 
     ESP_ERROR_CHECK(display_board_init(&board));
+    err = screenshot_init(&board, publish_runtime_topic);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Screenshot support disabled: %s", esp_err_to_name(err));
+    }
     ESP_ERROR_CHECK(ui_init(&board));
     ESP_ERROR_CHECK(display_dimming_init());
     ui_set_connection_status("Connecting Wi-Fi...");

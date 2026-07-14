@@ -4,9 +4,9 @@ Firmware for the Guition ESP32-4848S040 wall panel. It uses ESP-IDF, LVGL, MQTT,
 
 ## What it does
 
-- Shows time, date, weather, media, optional measurement chips, and up to five footer buttons.
+- Shows time, date, weather, media controls and favourites, optional measurement chips, and up to five footer buttons.
 - Dims its PWM-controlled backlight after inactivity and can switch it off completely; a touch or wake command restores full brightness.
-- Receives display state over MQTT and publishes button commands, availability, diagnostics, and retained state.
+- Receives display state over MQTT and publishes button commands, availability, diagnostics, retained state, and on-demand screenshots.
 - Registers its Home Assistant entities through MQTT Discovery.
 - Supports HTTPS OTA updates and rollback after a failed boot.
 
@@ -37,10 +37,16 @@ Give every panel its own MQTT base topic, for example `panel/guition-4848s040-ki
 
 Import [the MQTT Sync blueprint](config/blueprints/automation/walldisplay/mqtt_sync.yaml), create an automation from it, and set at least `panel_topic`, `panel_name`, `weather_entity`, and `media_entity`. Chip sensors and footer-button state entities are optional.
 
-The current firmware and blueprint release is `0.2.1`; the MQTT contract is `2`. During synchronization the blueprint publishes retained metadata to `<base>/set/blueprint_info`:
+For media-focused deployments, an optional custom integration is also included at [`config/custom_components/walldisplay_sync`](config/custom_components/walldisplay_sync). Copy that directory to Home Assistant's `config/custom_components/`, restart Home Assistant, then add **WallDisplay Sync** from the Integrations page. Its config flow selects the panel topic and media player, publishes structured current-media state, maps the panel's transport and volume commands to standard `media_player` actions, and configures each favourite's label, symbol, and `media_player.play_media` JSON payload. The integration invokes `play_media` on its selected player when a favourite is pressed. The existing blueprint remains the complete fallback for weather, chips, and footer buttons.
+
+The integration is also packaged for HACS from the repository-root `custom_components/walldisplay_sync` directory. HACS uses the public GitHub mirror at `github.com/phbaer/walldisplay`; Forgejo manages that mirror, while GitHub Actions validates the HACS layout and publishes matching tag releases.
+
+The HACS validation workflow intentionally ignores the repository-level license and topic checks because those are configured on GitHub rather than committed files. Set a repository license and suitable GitHub topics before submitting the integration to HACS's default repository list.
+
+The current firmware and blueprint release is `0.3.0`; the MQTT contract is `3`. During synchronization the blueprint publishes retained metadata to `<base>/set/blueprint_info`:
 
 ```json
-{"version":"0.2.1","contract":"2"}
+{"version":"0.3.0","contract":"3"}
 ```
 
 The panel compares that contract with its own value and exposes the result through diagnostic entities. Increment the contract in both firmware and blueprint whenever a topic, payload, discovery entity, or its meaning changes.
@@ -56,7 +62,11 @@ The panel compares that contract with its own value and exposes the result throu
 | Panel commands | `<base>/cmd/...` | Includes `button1`–`button5`, `sync`, configuration, and OTA. |
 | Panel state | `<base>/state/...` | Retained canonical values and diagnostics. |
 
-Use `set/name`, `set/weather`, `set/media`, `set/clock`, `set/date`, `set/chipN`, `set/chipN/color`, `set/buttonN/label`, and `set/buttonN/state` for display data. The panel republishes those values under `state/...`.
+Use `set/name`, `set/weather`, `set/media`, `set/clock`, `set/date`, `set/chipN`, `set/chipN/color`, `set/buttonN/label`, and `set/buttonN/state` for display data. The panel republishes those values under `state/...`. `set/media` accepts either legacy text or JSON such as `{"state":"playing","title":"Track","artist":"Artist","album":"Album","source":"Radio","artwork_url":"https://example.invalid/cover.jpg"}`; unknown fields are retained for forward compatibility.
+
+The Media page publishes non-retained `cmd/media/previous`, `cmd/media/play_pause`, `cmd/media/next`, `cmd/media/volume_down`, and `cmd/media/volume_up` commands. The blueprint maps them to the matching Home Assistant media-player actions. Support depends on the selected player. Configure up to five Media favourites with a label, symbol, and JSON payload for `media_player.play_media`; every favourite uses the selected Media player entity. For example, a web-radio favourite can use `{"media_content_id":"https://radio.example/stream.mp3","media_content_type":"music"}`. The custom integration exposes the same settings in its initial setup and **Configure** dialog. Labels are retained at `set/media/favoriteN/label` and touches publish `cmd/media/favoriteN`.
+
+Media controls use built-in symbols. Each favourite also has a blueprint symbol selector: `none`, `radio`, `music`, `album`, `playlist`, or `podcast`. The selector publishes a retained `set/media/favoriteN/icon` value, which the panel maps to a bundled LVGL glyph; it is safe on the panel font and does not require emoji support. Touch callbacks queue their MQTT commands, keeping network/outbox work out of LVGL's input context. When `artwork_url` is a direct HTTPS baseline-JPEG URL, the panel downloads it asynchronously, downscales it to the media artwork area, and displays it. Protected or relative Home Assistant media-proxy URLs are intentionally not fetched because the panel does not store Home Assistant credentials.
 
 The blueprint also publishes retained display-power settings to `set/display_power`, for example `{"dim_after":300,"off_after":600,"dim_percent":20}`. `dim_after` is the idle time before dimming, `off_after` is the additional dimmed time before the backlight turns off, and `dim_percent` is the dimmed brightness. A `dim_after` value of `0` disables display power saving; an `off_after` value of `0` keeps the display dimmed rather than turning it off. The defaults are 5 minutes, 10 additional minutes, and 20% brightness.
 
@@ -68,9 +78,11 @@ Weather can be text or JSON, for example:
 
 Buttons publish to `<base>/cmd/buttonN`. A configured state entity controls the visible toggle state; without one, the button is action-only. A `sync` command requests a complete blueprint refresh. The discovered **Wake Panel** button publishes to `<base>/cmd/wake`; this and any touchscreen press reset the display timer and restore full brightness. The blueprint's optional **Wake-up triggers** input accepts multiple Home Assistant triggers and publishes the same non-retained wake command. This trigger-selector feature requires Home Assistant 2024.10 or newer.
 
+For documentation, the discovered **Capture Screenshot** button (or a non-retained publish to `<base>/cmd/screenshot`) queues a capture of the current framebuffer. The panel writes a 480×480 24-bit BMP to its dedicated SPIFFS partition and publishes retained progress to `<base>/state/screenshot`. That partition is formatted automatically on its first use. When complete, the payload includes a local URL such as `http://192.0.2.10/screenshot.bmp`; open it from the same LAN to view or save the image. The endpoint is deliberately read-only and has no authentication, so expose the panel's HTTP port only on a trusted local network. A screenshot-storage or HTTP failure disables only this optional feature; it does not prevent the panel from starting.
+
 ### Discovered entities
 
-When discovery is enabled, Home Assistant receives weather, media, time, date, chip values and colours, button state, five button controls, a sync button, a wake button, MQTT-topic configuration, OTA-manifest configuration, and diagnostic sensors. Diagnostics include firmware and blueprint versions, contract compatibility, IP/MAC, Wi-Fi details, active partition, reset reason, uptime, and free heap/PSRAM.
+When discovery is enabled, Home Assistant receives weather, media, time, date, chip values and colours, button state, five button controls, a sync button, a wake button, a screenshot button, MQTT-topic configuration, OTA-manifest configuration, and diagnostic sensors. Diagnostics include firmware and blueprint versions, contract compatibility, IP/MAC, Wi-Fi details, active partition, reset reason, uptime, and free heap/PSRAM.
 
 ## Releases and OTA
 
@@ -85,16 +97,20 @@ This project targets the ESP32-4848S040: ESP32-S3, 16 MB flash, octal PSRAM, 480
 - The display uses byte-swapped RGB565. LVGL renders with `RGB565_SWAPPED`; do not enable the port's in-place byte swap.
 - Rendering uses direct mode and two frame buffers to avoid full-screen flashes during updates.
 - The ST7701 pixel bus runs at 10 MHz; the backlight is GPIO 38. GT911 uses I²C on GPIO 19 (SDA) and GPIO 45 (SCL).
-- The partition table includes read-only `appcfg`, writable NVS, factory and two OTA slots, and SPIFFS.
+- The partition table includes read-only `appcfg`, writable NVS, factory and two OTA slots, and SPIFFS. SPIFFS holds the most recently captured documentation screenshot.
 - The bundled Noto Sans face covers Latin, Greek, and Cyrillic (U+0020–U+052F). Emoji and CJK are not included.
 
 ## Third-party assets
+
+This project is licensed under the [MIT License](LICENSE).
+
+The HACS validation workflow ignores GitHub's repository-license metadata check because it can lag behind the committed license file. The `LICENSE` file remains the authoritative project license.
 
 Weather icons are adapted from the dark icon set in [NSPanel-Easy](https://github.com/edwardtfn/NSPanel-Easy/tree/main/hmi/dev/pics/weather/dark), used under its [MIT License](https://github.com/edwardtfn/NSPanel-Easy/blob/main/LICENSE). The bundled Noto Sans font is licensed under the SIL Open Font License 1.1.
 
 ## Repository maintenance
 
-Follow [AGENTS.md](AGENTS.md) and [the project-maintenance skill](skills/project-maintenance/SKILL.md). Keep this README current, align firmware and blueprint release versions, and validate firmware, blueprint YAML, and the final diff before handoff.
+Follow [AGENTS.md](AGENTS.md) and [the project-maintenance skill](skills/project-maintenance/SKILL.md). Keep this README current, align firmware and blueprint release versions, and validate firmware, blueprint YAML, and the final diff before handoff. Select the release and contract versions once for each cohesive feature branch; subsequent fixes in that branch keep those same values.
 
 ## Tests
 

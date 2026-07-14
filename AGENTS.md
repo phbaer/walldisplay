@@ -9,6 +9,7 @@ These rules apply to every AI assistant, LLM, code-generation tool, and automate
    - minor: backward-compatible feature or architectural capability;
    - patch: bug fix, documentation, refactor, or maintenance change.
 4. For a firmware or Home Assistant blueprint release, keep `APP_FW_VERSION` and the Home Assistant blueprint version aligned. Bump the MQTT contract version in both places whenever MQTT topics, payloads, discovery entities, or their semantics change.
+   - For one cohesive feature branch, increment the release and MQTT contract versions at most once. Follow-up fixes and refinements in that branch retain the feature's already-selected versions.
 5. Before handoff, validate the affected artifacts: build firmware changes, parse blueprint YAML changes, run documentation and diff checks, and report anything that could not be verified.
 
 Use [skills/project-maintenance/SKILL.md](skills/project-maintenance/SKILL.md) for the required maintenance workflow.

@@ -169,6 +169,7 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
     }
     ESP_ERROR_CHECK(publish_discovery(client, "button", "sync", "Sync Panel", "cmd/sync", NULL));
     ESP_ERROR_CHECK(publish_discovery(client, "button", "wake", "Wake Panel", "cmd/wake", NULL));
+    ESP_ERROR_CHECK(publish_discovery(client, "button", "screenshot", "Capture Screenshot", "cmd/screenshot", NULL));
     ESP_ERROR_CHECK(publish_discovery(client, "text", "base_topic", "Panel MQTT Topic", "cmd/config/base_topic", "state/config/base_topic"));
     ESP_ERROR_CHECK(publish_discovery(client, "text", "update_manifest", "Panel Update Manifest URL", "cmd/update", NULL));
 

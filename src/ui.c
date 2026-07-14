@@ -16,6 +16,7 @@
 
 #define UI_MAX_DYNAMIC_BUTTONS 5
 #define UI_MAX_MEASUREMENT_CHIPS 4
+#define UI_MAX_MEDIA_FAVORITES 5
 
 #define UI_SCREEN_MARGIN 10
 #define UI_CONTENT_WIDTH 460
@@ -42,6 +43,10 @@
 static const char *TAG = "ui";
 static lv_obj_t *s_title_label;
 static lv_obj_t *s_media_value_label;
+static lv_obj_t *s_media_artwork;
+static lv_obj_t *s_media_artwork_placeholder;
+static lv_obj_t *s_media_play_label;
+static lv_image_dsc_t s_media_artwork_dsc;
 static lv_obj_t *s_main_area;
 static lv_obj_t *s_weather_page;
 static lv_obj_t *s_media_page;
@@ -66,7 +71,13 @@ static lv_obj_t *s_dynamic_buttons[UI_MAX_DYNAMIC_BUTTONS];
 static lv_obj_t *s_dynamic_button_labels[UI_MAX_DYNAMIC_BUTTONS];
 static lv_obj_t *s_dynamic_button_switches[UI_MAX_DYNAMIC_BUTTONS];
 static int s_dynamic_button_slots[UI_MAX_DYNAMIC_BUTTONS];
+static lv_obj_t *s_media_favorite_buttons[UI_MAX_MEDIA_FAVORITES];
+static lv_obj_t *s_media_favorite_labels[UI_MAX_MEDIA_FAVORITES];
+static lv_obj_t *s_media_favorite_icons[UI_MAX_MEDIA_FAVORITES];
+static int s_media_favorite_slots[UI_MAX_MEDIA_FAVORITES];
 static void dynamic_button_event_cb(lv_event_t *event);
+static void media_control_event_cb(lv_event_t *event);
+static void media_favorite_event_cb(lv_event_t *event);
 
 static void touch_activity_event_cb(lv_event_t *event) {
     LV_UNUSED(event);
@@ -350,16 +361,16 @@ static void set_weather_icon(lv_obj_t *icon, const char *condition) {
     if (icon != NULL) lv_image_set_src(icon, weather_image_for_condition(condition));
 }
 
-static void create_page_switch(lv_obj_t *page, const char *text) {
+static void create_page_switch(lv_obj_t *page, const char *symbol) {
     lv_obj_t *button = lv_btn_create(page);
     style_button(button);
-    lv_obj_set_size(button, 104, 30);
+    lv_obj_set_size(button, 38, 34);
     lv_obj_align(button, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_add_event_cb(button, page_switch_event_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *label = lv_label_create(button);
-    lv_label_set_text(label, text);
-    lv_obj_set_style_text_font(label, font_ui_14(), 0);
+    lv_label_set_text(label, symbol);
+    lv_obj_set_style_text_font(label, font_symbols_14(), 0);
     lv_obj_set_style_text_color(label, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
     lv_obj_center(label);
 }
@@ -374,16 +385,37 @@ static esp_err_t publish_dynamic_button_action(size_t index) {
     }
 
     snprintf(command_topic, sizeof(command_topic), "%s/cmd/button%u", config->base_topic, (unsigned) (index + 1));
-    if (mqtt_app_publish(command_topic, "toggle", false) != ESP_OK) {
+    if (mqtt_app_publish_async(command_topic, "toggle", false) != ESP_OK) {
         return ESP_FAIL;
     }
 
     snprintf(state_topic, sizeof(state_topic), "%s/state/button%u_action", config->base_topic, (unsigned) (index + 1));
-    if (mqtt_app_publish(state_topic, "toggle", true) != ESP_OK) {
+    if (mqtt_app_publish_async(state_topic, "toggle", true) != ESP_OK) {
         return ESP_FAIL;
     }
 
     return ESP_OK;
+}
+
+static esp_err_t publish_media_command(const char *command) {
+    const app_config_t *config = app_config_get();
+    char topic[APP_TOPIC_MAX_LEN + 40];
+    snprintf(topic, sizeof(topic), "%s/cmd/media/%s", config->base_topic, command);
+    return mqtt_app_publish_async(topic, "press", false);
+}
+
+static lv_obj_t *create_media_button(lv_obj_t *parent, const char *text, int width, int height, void *user_data,
+                                     lv_event_cb_t callback, bool symbols) {
+    lv_obj_t *button = lv_btn_create(parent);
+    style_button(button);
+    lv_obj_set_size(button, width, height);
+    lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, user_data);
+    lv_obj_t *label = lv_label_create(button);
+    lv_label_set_text(label, text);
+    lv_obj_set_style_text_font(label, symbols ? font_symbols_14() : font_ui_14(), 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(UI_COLOR_TEXT), 0);
+    lv_obj_center(label);
+    return button;
 }
 
 static lv_obj_t *create_main_page(lv_obj_t *parent, const char *title, const char *switch_text,
@@ -427,7 +459,7 @@ static lv_obj_t *create_weather_page(lv_obj_t *parent) {
     lv_obj_set_style_text_font(title, font_ui_16(), 0);
     lv_obj_set_style_text_color(title, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, 4);
-    create_page_switch(page, "Media  >");
+    create_page_switch(page, LV_SYMBOL_RIGHT);
 
     s_weather_icons[0] = create_weather_icon(page, 72);
     lv_obj_align(s_weather_icons[0], LV_ALIGN_TOP_LEFT, 8, 52);
@@ -505,6 +537,30 @@ static void dynamic_button_event_cb(lv_event_t *event) {
     if (lv_event_get_code(event) == LV_EVENT_CLICKED && publish_dynamic_button_action(slot) != ESP_OK) {
         ESP_LOGW(TAG, "Button %u command publish failed", (unsigned) (slot + 1));
     }
+}
+
+static void media_control_event_cb(lv_event_t *event) {
+    const char *command = lv_event_get_user_data(event);
+    if (lv_event_get_code(event) == LV_EVENT_CLICKED && publish_media_command(command) != ESP_OK) {
+        ESP_LOGW(TAG, "Media command publish failed");
+    }
+}
+
+static void media_favorite_event_cb(lv_event_t *event) {
+    const int *slot = lv_event_get_user_data(event);
+    if (slot == NULL || *slot < 0 || *slot >= UI_MAX_MEDIA_FAVORITES || lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    char command[16];
+    snprintf(command, sizeof(command), "favorite%u", (unsigned)*slot + 1U);
+    if (publish_media_command(command) != ESP_OK) ESP_LOGW(TAG, "Media favourite publish failed");
+}
+
+static const char *media_favorite_symbol(const char *icon_name) {
+    if (icon_name == NULL || string_equals_ci(icon_name, "none")) return "";
+    if (string_equals_ci(icon_name, "radio") || string_equals_ci(icon_name, "music")) return LV_SYMBOL_AUDIO;
+    if (string_equals_ci(icon_name, "album")) return LV_SYMBOL_IMAGE;
+    if (string_equals_ci(icon_name, "playlist")) return LV_SYMBOL_LIST;
+    if (string_equals_ci(icon_name, "podcast")) return LV_SYMBOL_LOOP;
+    return "";
 }
 
 static void page_switch_event_cb(lv_event_t *event) {
@@ -646,8 +702,60 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_align(s_main_area, LV_ALIGN_TOP_MID, 0, UI_SCREEN_MARGIN + UI_HEADER_HEIGHT + UI_GAP);
 
     s_weather_page = create_weather_page(s_main_area);
-    s_media_page = create_main_page(s_main_area, "Media", "<  Weather", "Waiting for media...",
+    s_media_page = create_main_page(s_main_area, "", LV_SYMBOL_LEFT, "Waiting for media...",
                                     &s_media_value_label);
+    lv_obj_set_width(s_media_value_label, 250);
+    lv_obj_set_style_text_font(s_media_value_label, font_ui_16(), 0);
+    lv_obj_align(s_media_value_label, LV_ALIGN_TOP_LEFT, 122, 4);
+    s_media_artwork_placeholder = lv_obj_create(s_media_page);
+    style_panel(s_media_artwork_placeholder, UI_COLOR_CONTROL, 10);
+    lv_obj_set_size(s_media_artwork_placeholder, 112, 112);
+    lv_obj_align(s_media_artwork_placeholder, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_t *artwork_symbol = lv_label_create(s_media_artwork_placeholder);
+    lv_label_set_text(artwork_symbol, LV_SYMBOL_AUDIO);
+    lv_obj_set_style_text_font(artwork_symbol, font_symbols_14(), 0);
+    lv_obj_set_style_text_color(artwork_symbol, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
+    lv_obj_center(artwork_symbol);
+    s_media_artwork = lv_image_create(s_media_page);
+    lv_obj_set_size(s_media_artwork, 112, 112);
+    lv_obj_align(s_media_artwork, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_add_flag(s_media_artwork, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t *media_controls = lv_obj_create(s_media_page);
+    lv_obj_remove_style_all(media_controls);
+    lv_obj_set_size(media_controls, 424, 54);
+    lv_obj_set_layout(media_controls, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(media_controls, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(media_controls, 8, 0);
+    lv_obj_align(media_controls, LV_ALIGN_BOTTOM_MID, 0, -42);
+    create_media_button(media_controls, LV_SYMBOL_PREV, 78, 52, "previous", media_control_event_cb, true);
+    lv_obj_t *play_button = create_media_button(media_controls, LV_SYMBOL_PLAY, 78, 52, "play_pause", media_control_event_cb, true);
+    s_media_play_label = lv_obj_get_child(play_button, 0);
+    create_media_button(media_controls, LV_SYMBOL_NEXT, 78, 52, "next", media_control_event_cb, true);
+    create_media_button(media_controls, LV_SYMBOL_MINUS, 78, 52, "volume_down", media_control_event_cb, true);
+    create_media_button(media_controls, LV_SYMBOL_PLUS, 78, 52, "volume_up", media_control_event_cb, true);
+    lv_obj_t *media_favorites = lv_obj_create(s_media_page);
+    lv_obj_remove_style_all(media_favorites);
+    lv_obj_set_size(media_favorites, 424, 34);
+    lv_obj_set_layout(media_favorites, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(media_favorites, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(media_favorites, 6, 0);
+    lv_obj_align(media_favorites, LV_ALIGN_BOTTOM_MID, 0, 0);
+    for (size_t i = 0; i < UI_MAX_MEDIA_FAVORITES; ++i) {
+        s_media_favorite_slots[i] = (int)i;
+        lv_obj_t *button = create_media_button(media_favorites, "", 0, 30, &s_media_favorite_slots[i], media_favorite_event_cb, false);
+        lv_obj_set_flex_grow(button, 1);
+        s_media_favorite_buttons[i] = button;
+        s_media_favorite_labels[i] = lv_obj_get_child(button, 0);
+        lv_obj_set_width(s_media_favorite_labels[i], LV_PCT(100));
+        lv_label_set_long_mode(s_media_favorite_labels[i], LV_LABEL_LONG_DOT);
+        lv_obj_center(s_media_favorite_labels[i]);
+        s_media_favorite_icons[i] = lv_label_create(button);
+        lv_obj_set_style_text_font(s_media_favorite_icons[i], font_symbols_14(), 0);
+        lv_obj_set_style_text_color(s_media_favorite_icons[i], lv_color_hex(UI_COLOR_TEXT), 0);
+        lv_obj_align(s_media_favorite_icons[i], LV_ALIGN_LEFT_MID, 6, 0);
+        lv_obj_add_flag(s_media_favorite_icons[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
+    }
     lv_obj_add_flag(s_media_page, LV_OBJ_FLAG_HIDDEN);
 
     s_footer = lv_obj_create(screen);
@@ -765,7 +873,72 @@ esp_err_t ui_set_weather_text(const char *weather_text) {
 }
 
 esp_err_t ui_set_media_text(const char *media_text) {
-    return set_label_text(s_media_value_label, media_text);
+    if (media_text == NULL) return ESP_ERR_INVALID_ARG;
+    cJSON *root = cJSON_Parse(media_text);
+    if (!cJSON_IsObject(root)) return set_label_text(s_media_value_label, media_text);
+    const cJSON *title = cJSON_GetObjectItemCaseSensitive(root, "title");
+    const cJSON *artist = cJSON_GetObjectItemCaseSensitive(root, "artist");
+    const cJSON *source = cJSON_GetObjectItemCaseSensitive(root, "source");
+    const cJSON *state = cJSON_GetObjectItemCaseSensitive(root, "state");
+    char text[384];
+    snprintf(text, sizeof(text), "%s%s%s%s%s%s%s",
+             cJSON_IsString(title) ? title->valuestring : "Media idle",
+             cJSON_IsString(artist) ? "\n" : "", cJSON_IsString(artist) ? artist->valuestring : "",
+             cJSON_IsString(source) && source->valuestring[0] ? "\n" : "",
+             cJSON_IsString(source) ? source->valuestring : "",
+             cJSON_IsString(state) ? "\n" : "", cJSON_IsString(state) ? state->valuestring : "");
+    const bool playing = cJSON_IsString(state) && strcmp(state->valuestring, "playing") == 0;
+    cJSON_Delete(root);
+    if (!lvgl_port_lock(0)) return ESP_FAIL;
+    lv_label_set_text(s_media_value_label, text);
+    if (s_media_play_label != NULL) lv_label_set_text(s_media_play_label, playing ? LV_SYMBOL_PAUSE : LV_SYMBOL_PLAY);
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_set_media_favorite_label(size_t index, const char *label_text) {
+    if (index >= UI_MAX_MEDIA_FAVORITES || label_text == NULL || !lvgl_port_lock(0)) return ESP_ERR_INVALID_ARG;
+    if (label_text[0] == '\0') lv_obj_add_flag(s_media_favorite_buttons[index], LV_OBJ_FLAG_HIDDEN);
+    else { lv_label_set_text(s_media_favorite_labels[index], label_text); lv_obj_clear_flag(s_media_favorite_buttons[index], LV_OBJ_FLAG_HIDDEN); }
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_set_media_favorite_icon(size_t index, const char *icon_name) {
+    if (index >= UI_MAX_MEDIA_FAVORITES || icon_name == NULL || !lvgl_port_lock(0)) return ESP_ERR_INVALID_ARG;
+    const char *symbol = media_favorite_symbol(icon_name);
+    if (symbol[0] == '\0') {
+        lv_obj_add_flag(s_media_favorite_icons[index], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(s_media_favorite_labels[index], LV_PCT(100));
+        lv_obj_center(s_media_favorite_labels[index]);
+    } else {
+        lv_label_set_text(s_media_favorite_icons[index], symbol);
+        lv_obj_clear_flag(s_media_favorite_icons[index], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(s_media_favorite_labels[index], LV_PCT(70));
+        lv_obj_align(s_media_favorite_labels[index], LV_ALIGN_RIGHT_MID, -3, 0);
+    }
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_set_media_artwork(const uint16_t *pixels, size_t width, size_t height) {
+    if (!lvgl_port_lock(0)) return ESP_FAIL;
+    if (pixels == NULL || width == 0 || height == 0 || width > UINT16_MAX || height > UINT16_MAX) {
+        lv_obj_add_flag(s_media_artwork, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_media_artwork_placeholder, LV_OBJ_FLAG_HIDDEN);
+        lvgl_port_unlock();
+        return pixels == NULL ? ESP_OK : ESP_ERR_INVALID_ARG;
+    }
+    s_media_artwork_dsc = (lv_image_dsc_t){
+        .header.magic = LV_IMAGE_HEADER_MAGIC, .header.cf = LV_COLOR_FORMAT_RGB565,
+        .header.w = (uint16_t)width, .header.h = (uint16_t)height, .header.stride = (uint32_t)width * 2,
+        .data_size = (uint32_t)(width * height * 2), .data = (const uint8_t *)pixels,
+    };
+    lv_image_set_src(s_media_artwork, &s_media_artwork_dsc);
+    lv_obj_clear_flag(s_media_artwork, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_media_artwork_placeholder, LV_OBJ_FLAG_HIDDEN);
+    lvgl_port_unlock();
+    return ESP_OK;
 }
 
 esp_err_t ui_set_clock_text(const char *clock_text) {

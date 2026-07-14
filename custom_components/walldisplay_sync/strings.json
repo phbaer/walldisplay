@@ -1,0 +1,36 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "WallDisplay Sync",
+        "description": "Configure the media player and optional favourite play-media payloads.",
+        "data": {
+          "panel_topic": "Panel MQTT topic",
+          "media_entity": "Media player",
+          "favorite1_label": "Favourite 1 label", "favorite1_icon": "Favourite 1 symbol", "favorite1_payload": "Favourite 1 play-media JSON payload",
+          "favorite2_label": "Favourite 2 label", "favorite2_icon": "Favourite 2 symbol", "favorite2_payload": "Favourite 2 play-media JSON payload",
+          "favorite3_label": "Favourite 3 label", "favorite3_icon": "Favourite 3 symbol", "favorite3_payload": "Favourite 3 play-media JSON payload",
+          "favorite4_label": "Favourite 4 label", "favorite4_icon": "Favourite 4 symbol", "favorite4_payload": "Favourite 4 play-media JSON payload",
+          "favorite5_label": "Favourite 5 label", "favorite5_icon": "Favourite 5 symbol", "favorite5_payload": "Favourite 5 play-media JSON payload"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "WallDisplay Sync",
+        "description": "Configure the media player and optional favourite play-media payloads.",
+        "data": {
+          "panel_topic": "Panel MQTT topic",
+          "media_entity": "Media player",
+          "favorite1_label": "Favourite 1 label", "favorite1_icon": "Favourite 1 symbol", "favorite1_payload": "Favourite 1 play-media JSON payload",
+          "favorite2_label": "Favourite 2 label", "favorite2_icon": "Favourite 2 symbol", "favorite2_payload": "Favourite 2 play-media JSON payload",
+          "favorite3_label": "Favourite 3 label", "favorite3_icon": "Favourite 3 symbol", "favorite3_payload": "Favourite 3 play-media JSON payload",
+          "favorite4_label": "Favourite 4 label", "favorite4_icon": "Favourite 4 symbol", "favorite4_payload": "Favourite 4 play-media JSON payload",
+          "favorite5_label": "Favourite 5 label", "favorite5_icon": "Favourite 5 symbol", "favorite5_payload": "Favourite 5 play-media JSON payload"
+        }
+      }
+    }
+  }
+}

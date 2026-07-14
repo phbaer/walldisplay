@@ -1,0 +1,27 @@
+name: HACS integration
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+          # Topics are GitHub settings; license metadata is also GitHub-indexed
+          # and can lag behind a newly committed root LICENSE file.
+          ignore: brands images license topics
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: zip -r walldisplay_sync.zip custom_components/walldisplay_sync
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: walldisplay_sync.zip
