@@ -1,29 +1,27 @@
 blueprint:
-  name: WallDisplay Integration Actions v0.3.0
+  name: WallDisplay Footer Action v0.3.1
   description: >-
-    Run user-defined Home Assistant actions from WallDisplay Sync integration events or other selected triggers.
-    Use one automation for each action-only Footer Button event and another for external triggers that should press
-    the integration's Wake Panel button. This blueprint complements the custom integration; it does not synchronize
-    panel content.
+    Run one user-defined Home Assistant action sequence from one specific WallDisplay Sync Footer Button event.
+    Create a separate automation from this blueprint for each footer button that needs a different action. This
+    blueprint complements the custom integration; it does not synchronize panel content.
   domain: automation
   input:
-    triggers:
-      name: Triggers
-      description: >-
-        Select the triggering conditions. For an action-only footer button, add a State trigger and select the
-        matching WallDisplay Footer Button event entity. For a wake automation, select any external trigger.
+    footer_button:
+      name: Footer button event
+      description: Select the exact WallDisplay Footer Button event entity that should run these actions.
       selector:
-        trigger:
+        entity:
+          domain: event
     actions:
       name: Actions
-      description: >-
-        Select the actions to run. To wake the display, add a Button: Press action targeting the integration's
-        Wake Panel entity.
+      description: Select the actions to run when the selected footer button is pressed.
       selector:
         action:
 
 mode: queued
 max: 10
 
-triggers: !input triggers
+triggers:
+  - trigger: state
+    entity_id: !input footer_button
 actions: !input actions

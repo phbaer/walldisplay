@@ -9,7 +9,7 @@
 #define APP_DEVICE_NAME "Guition Wall Panel"
 #define APP_DEVICE_MODEL "ESP32-4848S040"
 #define APP_MANUFACTURER "Guition"
-#define APP_FW_VERSION "0.3.0"
+#define APP_FW_VERSION "0.3.1"
 /* Increment whenever MQTT topics, payloads, or semantics change. */
 #define APP_CONTRACT_VERSION "3"
 

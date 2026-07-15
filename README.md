@@ -43,7 +43,7 @@ The integration and blueprint are supported alternatives and must remain aligned
 
 When using the custom integration, manual Home Assistant automations are still required for full user-specific functionality: create one for each action-only **Footer Button N** event entity that should perform an action, and create your own triggers that press the integration's **Wake Panel** button when external events should wake the display. No manual automation is needed for media controls, favourites, clock/date, weather, chips, dimming, or a footer button bound to a toggleable state entity.
 
-For those manual behaviors, import [the WallDisplay Integration Actions blueprint](config/blueprints/automation/walldisplay/integration_actions.yaml). Create one automation per desired footer action: add a **State** trigger for its **Footer Button N** event entity, then select the actions to run. Create a separate automation for wake-up behavior: select the external triggers and add a **Button: Press** action targeting the integration's **Wake Panel** entity. This small helper blueprint complements the custom integration; do not use it as an additional synchronization automation.
+For those manual behaviors, import [the WallDisplay Footer Action blueprint](config/blueprints/automation/walldisplay/integration_actions.yaml). Create one automation from it for each desired footer action, select that exact **Footer Button N** event entity, then select the actions to run. The selected entity is the automation's only trigger, so different buttons can run different sequences without trigger conditions. The previous generic Integration Actions blueprint inputs are incompatible with this version; recreate those helper automations. For wake-up behavior, create a normal automation with your external triggers and a **Button: Press** action targeting the integration's **Wake Panel** entity. This helper blueprint complements the custom integration; do not use it as an additional synchronization automation.
 
 The integration is also packaged for HACS from the repository-root `custom_components/walldisplay_sync` directory. HACS uses the public GitHub mirror at `github.com/phbaer/walldisplay`; Forgejo manages that mirror, while GitHub Actions validates the HACS layout and publishes matching tag releases. A beta or release-candidate tag, such as `v0.4.0b1`, `v0.4.0rc1`, or `v0.4.0-beta.1`, is published as a GitHub prerelease.
 
@@ -51,10 +51,10 @@ For each non-default branch pushed to the GitHub mirror, **HACS branch preview**
 
 The HACS validation workflow intentionally ignores the repository-level license and topic checks because those are configured on GitHub rather than committed files. Set a repository license and suitable GitHub topics before submitting the integration to HACS's default repository list.
 
-The current firmware and blueprint release is `0.3.0`; the MQTT contract is `3`. During synchronization the blueprint publishes retained metadata to `<base>/set/blueprint_info`:
+The current firmware and blueprint release is `0.3.1`; the MQTT contract is `3`. During synchronization the blueprint publishes retained metadata to `<base>/set/blueprint_info`:
 
 ```json
-{"version":"0.3.0","contract":"3"}
+{"version":"0.3.1","contract":"3"}
 ```
 
 The panel compares that contract with its own value and exposes the result through diagnostic entities. Increment the contract in both firmware and blueprint whenever a topic, payload, discovery entity, or its meaning changes.

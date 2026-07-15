@@ -1,5 +1,5 @@
 blueprint:
-  name: WallDisplay MQTT Sync v0.3.0 (Contract 3)
+  name: WallDisplay MQTT Sync v0.3.1 (Contract 3)
   description: >-
     Publish panel name, clock, weather, rich media controls and favourites, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
@@ -347,7 +347,7 @@ trace:
   stored_traces: 20
 
 variables:
-  blueprint_version: "0.3.0"
+  blueprint_version: "0.3.1"
   panel_contract_version: "3"
   panel_topic: !input panel_topic
   panel_name: !input panel_name
