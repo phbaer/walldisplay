@@ -1,0 +1,58 @@
+name: HACS branch preview
+
+on:
+  push:
+    branches: ["**"]
+  delete:
+
+permissions:
+  contents: write
+
+env:
+  # Keep this greater than the latest stable HACS release. Update it when the
+  # next integration release version is selected.
+  HACS_PRERELEASE_BASE_VERSION: "0.4.0"
+
+jobs:
+  publish:
+    if: github.event_name == 'push' && github.ref_name != github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: hacs/action@main
+        with:
+          category: integration
+          ignore: brands images license topics
+      - name: Set preview tag
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          branch_id=$(printf '%s' "$BRANCH_NAME" | cksum | awk '{print $1}')
+          echo "PREVIEW_TAG=v${HACS_PRERELEASE_BASE_VERSION}b${branch_id}" >> "$GITHUB_ENV"
+      - name: Replace previous branch preview release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete "$PREVIEW_TAG" --cleanup-tag --yes || true
+      - run: zip -r walldisplay_sync.zip custom_components/walldisplay_sync
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.PREVIEW_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: "WallDisplay Sync branch: ${{ github.ref_name }}"
+          prerelease: true
+          make_latest: false
+          files: walldisplay_sync.zip
+
+  cleanup:
+    if: github.event_name == 'delete' && github.event.ref_type == 'branch' && github.event.ref != github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete the branch preview release and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH_NAME: ${{ github.event.ref }}
+        run: |
+          branch_id=$(printf '%s' "$BRANCH_NAME" | cksum | awk '{print $1}')
+          gh release delete "v${HACS_PRERELEASE_BASE_VERSION}b${branch_id}" --cleanup-tag --yes || true

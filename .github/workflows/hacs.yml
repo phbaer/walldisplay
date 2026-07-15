@@ -4,11 +4,27 @@ on:
     branches: ["**"]
     tags: ["v*"]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit SHA to package (for example a PR head SHA)"
+        required: true
+        type: string
+      tag:
+        description: "Unique prerelease tag to publish (for example v0.4.0b123)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - uses: hacs/action@main
         with:
           category: integration
@@ -16,12 +32,17 @@ jobs:
           # and can lag behind a newly committed root LICENSE file.
           ignore: brands images license topics
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - run: zip -r walldisplay_sync.zip custom_components/walldisplay_sync
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          target_commitish: ${{ inputs.ref || github.sha }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-') || contains(github.ref_name, 'b') || contains(github.ref_name, 'rc') }}
           files: walldisplay_sync.zip
