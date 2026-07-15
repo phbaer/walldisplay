@@ -5,7 +5,13 @@
         "title": "WallDisplay Sync",
         "data": {
           "panel_topic": "Panel MQTT topic",
+          "panel_name": "Panel name",
           "media_entity": "Media player",
+          "weather_entity": "Weather entity (optional)",
+          "dim_after": "Dim display after (seconds)",
+          "screen_off_after": "Turn screen off after dimming (seconds)",
+          "dim_brightness": "Dim brightness (percent)",
+          "chip_ok_color": "Measurement chip normal color", "chip_warn_color": "Measurement chip warning color", "chip_alert_color": "Measurement chip alert color", "chip_neutral_color": "Measurement chip non-numeric color",
           "favorite1_label": "Favourite 1 label", "favorite1_icon": "Favourite 1 symbol", "favorite1_payload": "Favourite 1 play-media JSON payload",
           "favorite2_label": "Favourite 2 label", "favorite2_icon": "Favourite 2 symbol", "favorite2_payload": "Favourite 2 play-media JSON payload",
           "favorite3_label": "Favourite 3 label", "favorite3_icon": "Favourite 3 symbol", "favorite3_payload": "Favourite 3 play-media JSON payload",
@@ -19,15 +25,30 @@
     "step": {
       "init": {
         "title": "WallDisplay Sync",
-        "description": "Configure the media player and optional favourite play-media payloads.",
+        "description": "Configure the panel content and media player actions.",
         "data": {
           "panel_topic": "Panel MQTT topic",
+          "panel_name": "Panel name",
           "media_entity": "Media player",
+          "weather_entity": "Weather entity (optional)",
+          "dim_after": "Dim display after (seconds)",
+          "screen_off_after": "Turn screen off after dimming (seconds)",
+          "dim_brightness": "Dim brightness (percent)",
+          "chip_ok_color": "Measurement chip normal color", "chip_warn_color": "Measurement chip warning color", "chip_alert_color": "Measurement chip alert color", "chip_neutral_color": "Measurement chip non-numeric color",
           "favorite1_label": "Favourite 1 label", "favorite1_icon": "Favourite 1 symbol", "favorite1_payload": "Favourite 1 play-media JSON payload",
           "favorite2_label": "Favourite 2 label", "favorite2_icon": "Favourite 2 symbol", "favorite2_payload": "Favourite 2 play-media JSON payload",
           "favorite3_label": "Favourite 3 label", "favorite3_icon": "Favourite 3 symbol", "favorite3_payload": "Favourite 3 play-media JSON payload",
           "favorite4_label": "Favourite 4 label", "favorite4_icon": "Favourite 4 symbol", "favorite4_payload": "Favourite 4 play-media JSON payload",
-          "favorite5_label": "Favourite 5 label", "favorite5_icon": "Favourite 5 symbol", "favorite5_payload": "Favourite 5 play-media JSON payload"
+          "favorite5_label": "Favourite 5 label", "favorite5_icon": "Favourite 5 symbol", "favorite5_payload": "Favourite 5 play-media JSON payload",
+          "chip1_sensor": "Measurement chip 1 entity", "chip1_warn_above": "Measurement chip 1 warning threshold", "chip1_alert_above": "Measurement chip 1 alert threshold",
+          "chip2_sensor": "Measurement chip 2 entity", "chip2_warn_above": "Measurement chip 2 warning threshold", "chip2_alert_above": "Measurement chip 2 alert threshold",
+          "chip3_sensor": "Measurement chip 3 entity", "chip3_warn_above": "Measurement chip 3 warning threshold", "chip3_alert_above": "Measurement chip 3 alert threshold",
+          "chip4_sensor": "Measurement chip 4 entity", "chip4_warn_above": "Measurement chip 4 warning threshold", "chip4_alert_above": "Measurement chip 4 alert threshold",
+          "footer1_label": "Footer button 1 label", "footer1_state_entity": "Footer button 1 state entity (optional)",
+          "footer2_label": "Footer button 2 label", "footer2_state_entity": "Footer button 2 state entity (optional)",
+          "footer3_label": "Footer button 3 label", "footer3_state_entity": "Footer button 3 state entity (optional)",
+          "footer4_label": "Footer button 4 label", "footer4_state_entity": "Footer button 4 state entity (optional)",
+          "footer5_label": "Footer button 5 label", "footer5_state_entity": "Footer button 5 state entity (optional)"
         }
       }
     }
