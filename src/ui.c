@@ -32,6 +32,8 @@
 #define UI_WEATHER_METRICS 5
 #define UI_WEATHER_TREND_SAMPLES 25
 #define UI_WEATHER_CURVE_POINTS ((UI_WEATHER_TREND_SAMPLES - 1) * 4 + 1)
+#define UI_WEATHER_CURVE_WIDTH 294
+#define UI_WEATHER_CURVE_HEIGHT 38
 #define UI_STATUS_CHIP_WIDTH 36
 #define UI_MEASUREMENT_CHIP_WIDTH 82
 #define UI_STATUS_CHIP_ROW_WIDTH (3 * UI_STATUS_CHIP_WIDTH)
@@ -479,12 +481,12 @@ static lv_obj_t *create_weather_page(lv_obj_t *parent) {
     lv_obj_align(s_weather_temperature_label, LV_ALIGN_TOP_LEFT, 96, 50);
 
     static const char *metric_symbols[UI_WEATHER_METRICS] = {
-        LV_SYMBOL_TINT, LV_SYMBOL_DOWN, LV_SYMBOL_REFRESH, LV_SYMBOL_TINT, LV_SYMBOL_CHARGE,
+        LV_SYMBOL_TINT, LV_SYMBOL_DOWN, LV_SYMBOL_VOLUME_MID, LV_SYMBOL_DOWNLOAD, LV_SYMBOL_CHARGE,
     };
     for (size_t i = 0; i < UI_WEATHER_METRICS; ++i) {
         s_weather_metric_containers[i] = lv_obj_create(page);
         lv_obj_remove_style_all(s_weather_metric_containers[i]);
-        lv_obj_set_size(s_weather_metric_containers[i], 84, 20);
+        lv_obj_set_size(s_weather_metric_containers[i], 118, 20);
         lv_obj_add_flag(s_weather_metric_containers[i], LV_OBJ_FLAG_HIDDEN);
 
         lv_obj_t *symbol = lv_label_create(s_weather_metric_containers[i]);
@@ -494,7 +496,7 @@ static lv_obj_t *create_weather_page(lv_obj_t *parent) {
         lv_obj_align(symbol, LV_ALIGN_LEFT_MID, 0, 0);
 
         s_weather_metric_labels[i] = lv_label_create(s_weather_metric_containers[i]);
-        lv_obj_set_width(s_weather_metric_labels[i], 64);
+        lv_obj_set_width(s_weather_metric_labels[i], 96);
         lv_label_set_long_mode(s_weather_metric_labels[i], LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_font(s_weather_metric_labels[i], font_ui_14(), 0);
         lv_obj_set_style_text_color(s_weather_metric_labels[i], lv_color_hex(0xCFD5DC), 0);
@@ -502,8 +504,8 @@ static lv_obj_t *create_weather_page(lv_obj_t *parent) {
     }
 
     s_weather_curve = lv_line_create(page);
-    lv_obj_set_size(s_weather_curve, 210, 58);
-    lv_obj_align(s_weather_curve, LV_ALIGN_TOP_RIGHT, -16, 48);
+    lv_obj_set_size(s_weather_curve, UI_WEATHER_CURVE_WIDTH, UI_WEATHER_CURVE_HEIGHT);
+    lv_obj_align(s_weather_curve, LV_ALIGN_TOP_LEFT, 8, 110);
     lv_obj_set_style_line_width(s_weather_curve, 3, 0);
     lv_obj_set_style_line_color(s_weather_curve, lv_color_hex(0x5FA9DD), 0);
     lv_obj_set_style_line_opa(s_weather_curve, LV_OPA_80, 0);
@@ -888,7 +890,7 @@ esp_err_t ui_set_weather_text(const char *weather_text) {
         else if (unit[0] != '\0') snprintf(metric_text, sizeof(metric_text), "%.0f %s", metric_values[i]->valuedouble, unit);
         else snprintf(metric_text, sizeof(metric_text), "%.0f", metric_values[i]->valuedouble);
         lv_label_set_text(s_weather_metric_labels[i], metric_text);
-        lv_obj_align(s_weather_metric_containers[i], LV_ALIGN_TOP_LEFT, (int) (visible_metrics++ * 84), 122);
+        lv_obj_align(s_weather_metric_containers[i], LV_ALIGN_TOP_LEFT, 310, 48 + (int) (visible_metrics++ * 20));
         lv_obj_clear_flag(s_weather_metric_containers[i], LV_OBJ_FLAG_HIDDEN);
     }
     lv_label_set_text(s_weather_temperature_label, temperature_text);
@@ -951,12 +953,12 @@ esp_err_t ui_set_weather_text(const char *weather_text) {
                 float value = 0.5f * ((2.0f * p1) + (-p0 + p2) * t + (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t2 + (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3);
                 if (value < minimum) value = minimum;
                 if (value > maximum) value = maximum;
-                s_weather_curve_points[point_count].x = (lv_coord_t) (point_count * 200 / ((trend_count - 1) * 4));
-                s_weather_curve_points[point_count++].y = (lv_coord_t) (52 - (value - minimum) * 46 / range);
+                s_weather_curve_points[point_count].x = (lv_coord_t) (point_count * (UI_WEATHER_CURVE_WIDTH - 8) / ((trend_count - 1) * 4));
+                s_weather_curve_points[point_count++].y = (lv_coord_t) ((UI_WEATHER_CURVE_HEIGHT - 4) - (value - minimum) * (UI_WEATHER_CURVE_HEIGHT - 10) / range);
             }
         }
-        s_weather_curve_points[point_count].x = 200;
-        s_weather_curve_points[point_count++].y = (lv_coord_t) (52 - (trend_values[trend_count - 1] - minimum) * 46 / range);
+        s_weather_curve_points[point_count].x = UI_WEATHER_CURVE_WIDTH - 8;
+        s_weather_curve_points[point_count++].y = (lv_coord_t) ((UI_WEATHER_CURVE_HEIGHT - 4) - (trend_values[trend_count - 1] - minimum) * (UI_WEATHER_CURVE_HEIGHT - 10) / range);
         lv_line_set_points(s_weather_curve, s_weather_curve_points, point_count);
         lv_obj_clear_flag(s_weather_curve, LV_OBJ_FLAG_HIDDEN);
     }
