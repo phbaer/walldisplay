@@ -808,7 +808,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_set_style_clip_corner(volume_rocker, true, 0);
     lv_obj_t *volume_down_button = create_media_button(volume_rocker, LV_SYMBOL_MINUS, 32, 44, "volume_down", media_control_event_cb, true);
     style_volume_rocker_button(volume_down_button);
-    lv_obj_align(volume_down_button, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_align(volume_down_button, LV_ALIGN_LEFT_MID, 4, 0);
     lv_obj_add_event_cb(volume_down_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_down");
 
     s_media_volume_slider = lv_slider_create(volume_rocker);
@@ -829,7 +829,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
 
     lv_obj_t *volume_up_button = create_media_button(volume_rocker, LV_SYMBOL_PLUS, 32, 44, "volume_up", media_control_event_cb, true);
     style_volume_rocker_button(volume_up_button);
-    lv_obj_align(volume_up_button, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_align(volume_up_button, LV_ALIGN_RIGHT_MID, -4, 0);
     lv_obj_add_event_cb(volume_up_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_up");
     lv_obj_t *media_favorites = lv_obj_create(s_media_page);
     lv_obj_remove_style_all(media_favorites);
