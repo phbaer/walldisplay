@@ -576,7 +576,8 @@ static void dynamic_button_event_cb(lv_event_t *event) {
 
 static void media_control_event_cb(lv_event_t *event) {
     const char *command = lv_event_get_user_data(event);
-    if (lv_event_get_code(event) == LV_EVENT_CLICKED && publish_media_command(command) != ESP_OK) {
+    const lv_event_code_t code = lv_event_get_code(event);
+    if ((code == LV_EVENT_CLICKED || code == LV_EVENT_LONG_PRESSED_REPEAT) && publish_media_command(command) != ESP_OK) {
         ESP_LOGW(TAG, "Media command publish failed");
     }
 }
@@ -758,8 +759,10 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     s_media_play_label = lv_obj_get_child(play_button, 0);
     media_widget_set_play_label(s_media_widget, s_media_play_label);
     create_media_button(media_controls, LV_SYMBOL_NEXT, 78, 52, "next", media_control_event_cb, true);
-    create_media_button(media_controls, LV_SYMBOL_MINUS, 78, 52, "volume_down", media_control_event_cb, true);
-    create_media_button(media_controls, LV_SYMBOL_PLUS, 78, 52, "volume_up", media_control_event_cb, true);
+    lv_obj_t *volume_down_button = create_media_button(media_controls, LV_SYMBOL_MINUS, 78, 52, "volume_down", media_control_event_cb, true);
+    lv_obj_add_event_cb(volume_down_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_down");
+    lv_obj_t *volume_up_button = create_media_button(media_controls, LV_SYMBOL_PLUS, 78, 52, "volume_up", media_control_event_cb, true);
+    lv_obj_add_event_cb(volume_up_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_up");
     lv_obj_t *media_favorites = lv_obj_create(s_media_page);
     lv_obj_remove_style_all(media_favorites);
     lv_obj_set_size(media_favorites, 424, 34);
