@@ -803,7 +803,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
 
     lv_obj_t *volume_rocker = lv_obj_create(s_media_page);
     style_panel(volume_rocker, 0x112536, 14);
-    lv_obj_set_size(volume_rocker, 50, 176);
+    lv_obj_set_size(volume_rocker, 50, 210);
     lv_obj_set_style_pad_all(volume_rocker, 0, 0);
     lv_obj_set_style_clip_corner(volume_rocker, true, 0);
     lv_obj_align(volume_rocker, LV_ALIGN_TOP_RIGHT, 0, 0);
@@ -815,7 +815,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     s_media_volume_slider = lv_slider_create(volume_rocker);
     lv_slider_set_range(s_media_volume_slider, 0, 100);
     lv_slider_set_value(s_media_volume_slider, 50, LV_ANIM_OFF);
-    lv_obj_set_size(s_media_volume_slider, 24, 100);
+    lv_obj_set_size(s_media_volume_slider, 24, 134);
     lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(0x112536), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_media_volume_slider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(s_media_volume_slider, 0, LV_PART_MAIN);
@@ -834,11 +834,11 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_add_event_cb(volume_down_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_down");
     lv_obj_t *media_favorites = lv_obj_create(s_media_page);
     lv_obj_remove_style_all(media_favorites);
-    lv_obj_set_size(media_favorites, 424, 34);
+    lv_obj_set_size(media_favorites, 368, 34);
     lv_obj_set_layout(media_favorites, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(media_favorites, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(media_favorites, 6, 0);
-    lv_obj_align(media_favorites, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_align(media_favorites, LV_ALIGN_BOTTOM_LEFT, 0, 0);
     for (size_t i = 0; i < UI_MAX_MEDIA_FAVORITES; ++i) {
         s_media_favorite_slots[i] = (int)i;
         lv_obj_t *button = create_media_button(media_favorites, "", 0, 30, &s_media_favorite_slots[i], media_favorite_event_cb, false);
