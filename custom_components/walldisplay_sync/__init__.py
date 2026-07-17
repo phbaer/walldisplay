@@ -93,6 +93,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "artist": attrs.get("media_artist") or "",
             "album": attrs.get("media_album_name") or "",
             "source": attrs.get("source") or "",
+            "volume_level": attrs.get("volume_level"),
             "artwork_url": "",
         }
         source = _artwork_url(hass, attrs.get("entity_picture") or attrs.get("media_image_url"))
@@ -216,6 +217,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def handle_command(message: mqtt.ReceiveMessage) -> None:
         command = message.topic.rsplit("/", 1)[-1]
+        if command == "volume":
+            try:
+                volume_level = min(100, max(0, float(message.payload))) / 100
+            except (TypeError, ValueError):
+                _LOGGER.warning("Ignoring invalid WallDisplay volume payload: %r", message.payload)
+                return
+            await hass.services.async_call("media_player", "volume_set", {"entity_id": entity_id, "volume_level": volume_level}, blocking=False)
+            return
         service = {
             "previous": "media_previous_track",
             "play_pause": "media_play_pause",
