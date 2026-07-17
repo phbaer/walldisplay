@@ -11,6 +11,7 @@
 #include "walldisplay/ui_assets.h"
 #include "walldisplay/ui_font_noto_16.h"
 #include "walldisplay/ui_font_temperature_28_bold.h"
+#include "walldisplay/ui_font_weather_symbols_14.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -101,6 +102,7 @@ static const lv_font_t *font_time(void) { return &lv_font_montserrat_28; }
 
 /* LVGL's private-use LV_SYMBOL_* glyphs are supplied by Montserrat. */
 static const lv_font_t *font_symbols_14(void) { return &lv_font_montserrat_14; }
+static const lv_font_t *font_weather_symbols_14(void) { return &ui_font_weather_symbols_14; }
 
 static void style_panel(lv_obj_t *object, uint32_t color, int radius) {
     lv_obj_remove_style_all(object);
@@ -481,7 +483,7 @@ static lv_obj_t *create_weather_page(lv_obj_t *parent) {
     lv_obj_align(s_weather_temperature_label, LV_ALIGN_TOP_LEFT, 96, 50);
 
     static const char *metric_symbols[UI_WEATHER_METRICS] = {
-        LV_SYMBOL_TINT, LV_SYMBOL_DOWN, LV_SYMBOL_VOLUME_MID, LV_SYMBOL_DOWNLOAD, LV_SYMBOL_CHARGE,
+        "\xef\x81\x83", "\xef\x8f\xbd", "\xef\x9c\xae", "\xef\x9c\xbd", "\xef\x86\x85",
     };
     for (size_t i = 0; i < UI_WEATHER_METRICS; ++i) {
         s_weather_metric_containers[i] = lv_obj_create(page);
@@ -491,7 +493,7 @@ static lv_obj_t *create_weather_page(lv_obj_t *parent) {
 
         lv_obj_t *symbol = lv_label_create(s_weather_metric_containers[i]);
         lv_label_set_text(symbol, metric_symbols[i]);
-        lv_obj_set_style_text_font(symbol, font_symbols_14(), 0);
+        lv_obj_set_style_text_font(symbol, font_weather_symbols_14(), 0);
         lv_obj_set_style_text_color(symbol, lv_color_hex(0xCFD5DC), 0);
         lv_obj_align(symbol, LV_ALIGN_LEFT_MID, 0, 0);
 
