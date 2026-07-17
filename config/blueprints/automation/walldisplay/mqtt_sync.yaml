@@ -1,5 +1,5 @@
 blueprint:
-  name: WallDisplay MQTT Sync v0.4.0 (Contract 4)
+  name: WallDisplay MQTT Sync v0.5.0 (Contract 5)
   description: >-
     Publish panel name, clock, weather, rich media controls and favourites, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
@@ -19,6 +19,17 @@ blueprint:
       default: Living Room
       selector:
         text:
+    time_format:
+      name: Clock format
+      description: Select 24-hour or 12-hour time for the panel header.
+      default: "24h"
+      selector:
+        select:
+          options:
+            - label: 24-hour
+              value: "24h"
+            - label: 12-hour
+              value: "12h"
     weather_entity:
       name: Weather entity
       selector:
@@ -37,6 +48,21 @@ blueprint:
     pressure_entity:
       name: Pressure sensor (optional)
       description: Overrides the weather entity pressure attribute.
+      default: ""
+      selector: {entity: {domain: sensor}}
+    wind_speed_entity:
+      name: Wind speed sensor (optional)
+      description: Overrides the weather entity wind_speed attribute.
+      default: ""
+      selector: {entity: {domain: sensor}}
+    rainfall_entity:
+      name: Rainfall sensor (optional)
+      description: Overrides the weather entity precipitation attribute.
+      default: ""
+      selector: {entity: {domain: sensor}}
+    irradiance_entity:
+      name: Solar irradiance sensor (optional)
+      description: Overrides the weather entity irradiance attribute.
       default: ""
       selector: {entity: {domain: sensor}}
     media_entity:
@@ -362,14 +388,18 @@ trace:
   stored_traces: 20
 
 variables:
-  blueprint_version: "0.4.0"
-  panel_contract_version: "4"
+  blueprint_version: "0.5.0"
+  panel_contract_version: "5"
   panel_topic: !input panel_topic
   panel_name: !input panel_name
+  time_format: !input time_format
   weather_entity: !input weather_entity
   temperature_entity: !input temperature_entity
   humidity_entity: !input humidity_entity
   pressure_entity: !input pressure_entity
+  wind_speed_entity: !input wind_speed_entity
+  rainfall_entity: !input rainfall_entity
+  irradiance_entity: !input irradiance_entity
   media_entity: !input media_entity
   media_favorite1_label: !input media_favorite1_label
   media_favorite1_icon: !input media_favorite1_icon
@@ -678,7 +708,7 @@ actions:
               topic: "{{ panel_topic }}/set/clock"
               qos: 1
               retain: true
-              payload: "{{ now().strftime('%H:%M') }}"
+              payload: "{{ now().strftime('%-I:%M %p' if time_format == '12h' else '%H:%M') }}"
           - action: mqtt.publish
             data:
               topic: "{{ panel_topic }}/set/date"
@@ -770,7 +800,7 @@ actions:
               topic: "{{ panel_topic }}/set/clock"
               qos: 1
               retain: true
-              payload: "{{ now().strftime('%H:%M') }}"
+              payload: "{{ now().strftime('%-I:%M %p' if time_format == '12h' else '%H:%M') }}"
           - action: mqtt.publish
             data:
               topic: "{{ panel_topic }}/set/date"
@@ -810,6 +840,12 @@ actions:
                 {% set history = (temperature_history | default({}, true)).get('statistics', {}).get(trend_entity, []) %}
                 {% set humidity = states(humidity_entity) if humidity_entity | length > 0 else state_attr(weather_entity, 'humidity') %}
                 {% set pressure = states(pressure_entity) if pressure_entity | length > 0 else state_attr(weather_entity, 'pressure') %}
+                {% set wind_speed = states(wind_speed_entity) if wind_speed_entity | length > 0 else state_attr(weather_entity, 'wind_speed') %}
+                {% set wind_unit = state_attr(wind_speed_entity, 'unit_of_measurement') if wind_speed_entity | length > 0 else state_attr(weather_entity, 'wind_speed_unit') %}
+                {% set rainfall = states(rainfall_entity) if rainfall_entity | length > 0 else state_attr(weather_entity, 'precipitation') %}
+                {% set rainfall_unit = state_attr(rainfall_entity, 'unit_of_measurement') if rainfall_entity | length > 0 else state_attr(weather_entity, 'precipitation_unit') %}
+                {% set irradiance = states(irradiance_entity) if irradiance_entity | length > 0 else state_attr(weather_entity, 'irradiance') %}
+                {% set irradiance_unit = state_attr(irradiance_entity, 'unit_of_measurement') if irradiance_entity | length > 0 else state_attr(weather_entity, 'irradiance_unit') %}
                 {% set ns = namespace(days=[], trend=[]) %}
                 {% for item in history %}
                   {% if item.mean is number %}
@@ -832,6 +868,12 @@ actions:
                   'temperature': temp if temp is number else none,
                   'humidity': humidity | float(none),
                   'pressure': pressure | float(none),
+                  'wind_speed': wind_speed | float(none),
+                  'wind_unit': wind_unit | default('', true),
+                  'rainfall': rainfall | float(none),
+                  'rainfall_unit': rainfall_unit | default('', true),
+                  'irradiance': irradiance | float(none),
+                  'irradiance_unit': irradiance_unit | default('', true),
                   'trend': ns.trend[-25:],
                   'forecast': ns.days
                 } | tojson }}

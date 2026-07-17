@@ -29,6 +29,7 @@
 #define UI_MAIN_FULL_HEIGHT 340
 #define UI_GAP 10
 #define UI_FORECAST_DAYS 3
+#define UI_WEATHER_METRICS 5
 #define UI_WEATHER_TREND_SAMPLES 25
 #define UI_WEATHER_CURVE_POINTS ((UI_WEATHER_TREND_SAMPLES - 1) * 4 + 1)
 #define UI_STATUS_CHIP_WIDTH 36
@@ -53,10 +54,8 @@ static lv_obj_t *s_weather_page;
 static lv_obj_t *s_media_page;
 static lv_obj_t *s_footer;
 static lv_obj_t *s_dynamic_row;
-static lv_obj_t *s_weather_humidity_symbol;
-static lv_obj_t *s_weather_humidity_label;
-static lv_obj_t *s_weather_pressure_symbol;
-static lv_obj_t *s_weather_pressure_label;
+static lv_obj_t *s_weather_metric_containers[UI_WEATHER_METRICS];
+static lv_obj_t *s_weather_metric_labels[UI_WEATHER_METRICS];
 static lv_obj_t *s_weather_temperature_label;
 static lv_obj_t *s_weather_curve;
 static lv_point_precise_t s_weather_curve_points[UI_WEATHER_CURVE_POINTS];
@@ -94,9 +93,9 @@ static void page_switch_event_cb(lv_event_t *event);
 /* Static Noto Sans renders all UI text without runtime glyph allocation. */
 static const lv_font_t *font_ui_14(void) { return &ui_font_noto_16; }
 static const lv_font_t *font_ui_16(void) { return &ui_font_noto_16; }
-static const lv_font_t *font_ui_18(void) { return &ui_font_noto_16; }
 static const lv_font_t *font_ui_20(void) { return &ui_font_noto_16; }
 static const lv_font_t *font_ui_24(void) { return &ui_font_temperature_28_bold; }
+static const lv_font_t *font_time(void) { return &lv_font_montserrat_28; }
 
 /* LVGL's private-use LV_SYMBOL_* glyphs are supplied by Montserrat. */
 static const lv_font_t *font_symbols_14(void) { return &lv_font_montserrat_14; }
@@ -145,24 +144,27 @@ static lv_obj_t *create_switch_indicator(lv_obj_t *button) {
     return track;
 }
 
-static lv_obj_t *create_state_chip(lv_obj_t *parent, const char *icon, lv_obj_t **out_label) {
-    lv_obj_t *chip = lv_obj_create(parent);
-    lv_obj_remove_style_all(chip);
-    lv_obj_set_size(chip, UI_STATUS_CHIP_WIDTH, 24);
-    lv_obj_set_style_bg_color(chip, lv_color_hex(0x1A1F26), 0);
-    lv_obj_set_style_bg_opa(chip, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(chip, 1, 0);
-    lv_obj_set_style_border_color(chip, lv_color_hex(0x2A3038), 0);
-    lv_obj_set_style_radius(chip, 12, 0);
+static lv_obj_t *create_state_segment(lv_obj_t *parent, int x_offset, const char *icon, lv_obj_t **out_label) {
+    lv_obj_t *segment = lv_obj_create(parent);
+    lv_obj_remove_style_all(segment);
+    lv_obj_set_size(segment, UI_STATUS_CHIP_WIDTH, 24);
+    lv_obj_set_style_bg_color(segment, lv_color_hex(0x1A1F26), 0);
+    lv_obj_set_style_bg_opa(segment, LV_OPA_COVER, 0);
+    if (x_offset > 0) {
+        lv_obj_set_style_border_width(segment, 1, 0);
+        lv_obj_set_style_border_side(segment, LV_BORDER_SIDE_LEFT, 0);
+        lv_obj_set_style_border_color(segment, lv_color_hex(0x2A3038), 0);
+    }
+    lv_obj_align(segment, LV_ALIGN_LEFT_MID, x_offset, 0);
 
-    lv_obj_t *label = lv_label_create(chip);
+    lv_obj_t *label = lv_label_create(segment);
     lv_label_set_text(label, icon);
     lv_obj_set_style_text_font(label, font_symbols_14(), 0);
     lv_obj_set_style_text_color(label, lv_color_hex(0xE6ECF4), 0);
     lv_obj_center(label);
     *out_label = label;
 
-    return chip;
+    return segment;
 }
 
 static lv_obj_t *create_measurement_chip(lv_obj_t *parent, const char *initial_text, lv_obj_t **out_label) {
@@ -476,31 +478,28 @@ static lv_obj_t *create_weather_page(lv_obj_t *parent) {
     lv_obj_set_style_text_color(s_weather_temperature_label, lv_color_hex(UI_COLOR_TEXT), 0);
     lv_obj_align(s_weather_temperature_label, LV_ALIGN_TOP_LEFT, 96, 50);
 
-    s_weather_humidity_symbol = lv_label_create(page);
-    lv_label_set_text(s_weather_humidity_symbol, LV_SYMBOL_TINT);
-    lv_obj_set_style_text_font(s_weather_humidity_symbol, font_symbols_14(), 0);
-    lv_obj_set_style_text_color(s_weather_humidity_symbol, lv_color_hex(0xCFD5DC), 0);
-    lv_obj_align(s_weather_humidity_symbol, LV_ALIGN_TOP_LEFT, 98, 86);
+    static const char *metric_symbols[UI_WEATHER_METRICS] = {
+        LV_SYMBOL_TINT, LV_SYMBOL_DOWN, LV_SYMBOL_REFRESH, LV_SYMBOL_TINT, LV_SYMBOL_CHARGE,
+    };
+    for (size_t i = 0; i < UI_WEATHER_METRICS; ++i) {
+        s_weather_metric_containers[i] = lv_obj_create(page);
+        lv_obj_remove_style_all(s_weather_metric_containers[i]);
+        lv_obj_set_size(s_weather_metric_containers[i], 84, 20);
+        lv_obj_add_flag(s_weather_metric_containers[i], LV_OBJ_FLAG_HIDDEN);
 
-    s_weather_humidity_label = lv_label_create(page);
-    lv_label_set_text(s_weather_humidity_label, "--%");
-    lv_obj_set_width(s_weather_humidity_label, 82);
-    lv_obj_set_style_text_font(s_weather_humidity_label, font_ui_14(), 0);
-    lv_obj_set_style_text_color(s_weather_humidity_label, lv_color_hex(0xCFD5DC), 0);
-    lv_obj_align(s_weather_humidity_label, LV_ALIGN_TOP_LEFT, 118, 86);
+        lv_obj_t *symbol = lv_label_create(s_weather_metric_containers[i]);
+        lv_label_set_text(symbol, metric_symbols[i]);
+        lv_obj_set_style_text_font(symbol, font_symbols_14(), 0);
+        lv_obj_set_style_text_color(symbol, lv_color_hex(0xCFD5DC), 0);
+        lv_obj_align(symbol, LV_ALIGN_LEFT_MID, 0, 0);
 
-    s_weather_pressure_symbol = lv_label_create(page);
-    lv_label_set_text(s_weather_pressure_symbol, LV_SYMBOL_DOWN);
-    lv_obj_set_style_text_font(s_weather_pressure_symbol, font_symbols_14(), 0);
-    lv_obj_set_style_text_color(s_weather_pressure_symbol, lv_color_hex(0xCFD5DC), 0);
-    lv_obj_align(s_weather_pressure_symbol, LV_ALIGN_TOP_LEFT, 98, 106);
-
-    s_weather_pressure_label = lv_label_create(page);
-    lv_label_set_text(s_weather_pressure_label, "-- hPa");
-    lv_obj_set_width(s_weather_pressure_label, 82);
-    lv_obj_set_style_text_font(s_weather_pressure_label, font_ui_14(), 0);
-    lv_obj_set_style_text_color(s_weather_pressure_label, lv_color_hex(0xCFD5DC), 0);
-    lv_obj_align(s_weather_pressure_label, LV_ALIGN_TOP_LEFT, 118, 106);
+        s_weather_metric_labels[i] = lv_label_create(s_weather_metric_containers[i]);
+        lv_obj_set_width(s_weather_metric_labels[i], 64);
+        lv_label_set_long_mode(s_weather_metric_labels[i], LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_font(s_weather_metric_labels[i], font_ui_14(), 0);
+        lv_obj_set_style_text_color(s_weather_metric_labels[i], lv_color_hex(0xCFD5DC), 0);
+        lv_obj_align(s_weather_metric_labels[i], LV_ALIGN_RIGHT_MID, 0, 0);
+    }
 
     s_weather_curve = lv_line_create(page);
     lv_obj_set_size(s_weather_curve, 210, 58);
@@ -514,7 +513,7 @@ static lv_obj_t *create_weather_page(lv_obj_t *parent) {
     for (size_t i = 0; i < UI_FORECAST_DAYS; ++i) {
         lv_obj_t *card = lv_obj_create(page);
         lv_obj_remove_style_all(card);
-        lv_obj_set_size(card, 132, 92);
+        lv_obj_set_size(card, 132, 72);
         lv_obj_set_style_bg_color(card, lv_color_hex(UI_COLOR_CONTROL), 0);
         lv_obj_set_style_bg_opa(card, LV_OPA_70, 0);
         lv_obj_set_style_radius(card, 10, 0);
@@ -527,14 +526,14 @@ static lv_obj_t *create_weather_page(lv_obj_t *parent) {
         lv_obj_set_style_text_color(s_forecast_day_labels[i], lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
         lv_obj_align(s_forecast_day_labels[i], LV_ALIGN_TOP_LEFT, 8, 6);
 
-        s_weather_icons[i + 1] = create_weather_icon(card, 40);
-        lv_obj_align(s_weather_icons[i + 1], LV_ALIGN_BOTTOM_LEFT, 8, -5);
+        s_weather_icons[i + 1] = create_weather_icon(card, 32);
+        lv_obj_align(s_weather_icons[i + 1], LV_ALIGN_BOTTOM_LEFT, 8, -4);
 
         s_forecast_temperature_labels[i] = lv_label_create(card);
         lv_label_set_text(s_forecast_temperature_labels[i], "--° / --°");
         lv_obj_set_style_text_font(s_forecast_temperature_labels[i], font_ui_14(), 0);
         lv_obj_set_style_text_color(s_forecast_temperature_labels[i], lv_color_hex(UI_COLOR_TEXT), 0);
-        lv_obj_align(s_forecast_temperature_labels[i], LV_ALIGN_BOTTOM_RIGHT, -7, -16);
+        lv_obj_align(s_forecast_temperature_labels[i], LV_ALIGN_BOTTOM_RIGHT, -7, -10);
     }
 
     return page;
@@ -667,38 +666,41 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_align(header, LV_ALIGN_TOP_MID, 0, UI_SCREEN_MARGIN);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_title_label = lv_label_create(header);
-    lv_label_set_text(s_title_label, "Living Room");
-    lv_obj_set_width(s_title_label, 240);
-    lv_label_set_long_mode(s_title_label, LV_LABEL_LONG_DOT);
-    lv_obj_set_style_text_font(s_title_label, font_ui_20(), 0);
-    lv_obj_set_style_text_color(s_title_label, lv_color_hex(UI_COLOR_TEXT), 0);
-    lv_obj_align(s_title_label, LV_ALIGN_TOP_LEFT, 14, 7);
-
     s_clock_label = lv_label_create(header);
     lv_label_set_text(s_clock_label, "--:--");
-    lv_obj_set_style_text_font(s_clock_label, font_ui_18(), 0);
-    lv_obj_set_style_text_color(s_clock_label, lv_color_hex(0xCFD5DC), 0);
-    lv_obj_align(s_clock_label, LV_ALIGN_TOP_RIGHT, -14, 8);
+    lv_obj_set_style_text_font(s_clock_label, font_time(), 0);
+    lv_obj_set_style_text_color(s_clock_label, lv_color_hex(UI_COLOR_TEXT), 0);
+    lv_obj_align(s_clock_label, LV_ALIGN_TOP_LEFT, 14, 14);
+
+    s_title_label = lv_label_create(header);
+    lv_label_set_text(s_title_label, "Living Room");
+    lv_obj_set_width(s_title_label, 300);
+    lv_label_set_long_mode(s_title_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(s_title_label, font_ui_14(), 0);
+    lv_obj_set_style_text_color(s_title_label, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
+    lv_obj_align(s_title_label, LV_ALIGN_TOP_LEFT, 14, 48);
 
     s_date_label = lv_label_create(header);
     lv_label_set_text(s_date_label, "---, -- ---");
     lv_obj_set_style_text_font(s_date_label, font_ui_14(), 0);
     lv_obj_set_style_text_color(s_date_label, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
-    lv_obj_align(s_date_label, LV_ALIGN_TOP_RIGHT, -14, 34);
+    lv_obj_align(s_date_label, LV_ALIGN_TOP_RIGHT, -14, 8);
 
     lv_obj_t *chip_row = lv_obj_create(header);
     lv_obj_remove_style_all(chip_row);
     lv_obj_set_size(chip_row, 436, 30);
     lv_obj_align(chip_row, LV_ALIGN_BOTTOM_MID, 0, -8);
 
-    lv_obj_t *status_chip_row = lv_obj_create(chip_row);
-    lv_obj_remove_style_all(status_chip_row);
-    lv_obj_set_size(status_chip_row, UI_STATUS_CHIP_ROW_WIDTH, 30);
-    lv_obj_set_layout(status_chip_row, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(status_chip_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(status_chip_row, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_align(status_chip_row, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_t *status_control = lv_obj_create(chip_row);
+    lv_obj_remove_style_all(status_control);
+    lv_obj_set_size(status_control, UI_STATUS_CHIP_ROW_WIDTH, 24);
+    lv_obj_set_style_bg_color(status_control, lv_color_hex(0x1A1F26), 0);
+    lv_obj_set_style_bg_opa(status_control, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(status_control, 1, 0);
+    lv_obj_set_style_border_color(status_control, lv_color_hex(0x2A3038), 0);
+    lv_obj_set_style_radius(status_control, 12, 0);
+    lv_obj_set_style_clip_corner(status_control, true, 0);
+    lv_obj_align(status_control, LV_ALIGN_RIGHT_MID, 0, 0);
 
     lv_obj_t *measurement_chip_row = lv_obj_create(chip_row);
     lv_obj_remove_style_all(measurement_chip_row);
@@ -715,9 +717,9 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     for (size_t i = 0; i < UI_MAX_MEASUREMENT_CHIPS; ++i) {
         lv_obj_add_flag(s_measurement_chips[i], LV_OBJ_FLAG_HIDDEN);
     }
-    s_wifi_chip = create_state_chip(status_chip_row, LV_SYMBOL_WIFI, &s_wifi_chip_label);
-    s_mqtt_chip = create_state_chip(status_chip_row, LV_SYMBOL_UPLOAD, &s_mqtt_chip_label);
-    s_ha_chip = create_state_chip(status_chip_row, LV_SYMBOL_HOME, &s_ha_chip_label);
+    s_wifi_chip = create_state_segment(status_control, 0, LV_SYMBOL_WIFI, &s_wifi_chip_label);
+    s_mqtt_chip = create_state_segment(status_control, UI_STATUS_CHIP_WIDTH, LV_SYMBOL_UPLOAD, &s_mqtt_chip_label);
+    s_ha_chip = create_state_segment(status_control, 2 * UI_STATUS_CHIP_WIDTH, LV_SYMBOL_HOME, &s_ha_chip_label);
     set_measurement_chip_color_locked(0, "neutral");
     set_measurement_chip_color_locked(1, "neutral");
     set_measurement_chip_color_locked(2, "neutral");
@@ -845,8 +847,9 @@ esp_err_t ui_set_weather_text(const char *weather_text) {
 
     cJSON *root = cJSON_Parse(weather_text);
     if (!cJSON_IsObject(root)) {
-        lv_label_set_text(s_weather_humidity_label, "--%");
-        lv_label_set_text(s_weather_pressure_label, "-- hPa");
+        for (size_t i = 0; i < UI_WEATHER_METRICS; ++i) {
+            lv_obj_add_flag(s_weather_metric_containers[i], LV_OBJ_FLAG_HIDDEN);
+        }
         lv_label_set_text(s_weather_temperature_label, "--°");
         set_weather_icon(s_weather_icons[0], weather_text);
         cJSON_Delete(root);
@@ -858,6 +861,9 @@ esp_err_t ui_set_weather_text(const char *weather_text) {
     const cJSON *humidity = cJSON_GetObjectItemCaseSensitive(root, "humidity");
     const cJSON *pressure = cJSON_GetObjectItemCaseSensitive(root, "pressure");
     const cJSON *condition = cJSON_GetObjectItemCaseSensitive(root, "condition");
+    const cJSON *wind = cJSON_GetObjectItemCaseSensitive(root, "wind_speed");
+    const cJSON *rain = cJSON_GetObjectItemCaseSensitive(root, "rainfall");
+    const cJSON *irradiance = cJSON_GetObjectItemCaseSensitive(root, "irradiance");
     const char *condition_text = cJSON_IsString(condition) ? condition->valuestring : "Unknown";
     char temperature_text[24];
     if (cJSON_IsNumber(temperature)) {
@@ -865,14 +871,26 @@ esp_err_t ui_set_weather_text(const char *weather_text) {
     } else {
         snprintf(temperature_text, sizeof(temperature_text), "--°");
     }
-    char humidity_text[20];
-    char pressure_text[24];
-    if (cJSON_IsNumber(humidity)) snprintf(humidity_text, sizeof(humidity_text), "%.0f%%", humidity->valuedouble);
-    else snprintf(humidity_text, sizeof(humidity_text), "--%%");
-    if (cJSON_IsNumber(pressure)) snprintf(pressure_text, sizeof(pressure_text), "%.0f hPa", pressure->valuedouble);
-    else snprintf(pressure_text, sizeof(pressure_text), "-- hPa");
-    lv_label_set_text(s_weather_humidity_label, humidity_text);
-    lv_label_set_text(s_weather_pressure_label, pressure_text);
+    const char *wind_unit = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(root, "wind_unit"));
+    const char *rain_unit = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(root, "rainfall_unit"));
+    const char *irradiance_unit = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(root, "irradiance_unit"));
+    const cJSON *metric_values[UI_WEATHER_METRICS] = {humidity, pressure, wind, rain, irradiance};
+    const char *metric_units[UI_WEATHER_METRICS] = {"%", "hPa", wind_unit, rain_unit, irradiance_unit};
+    size_t visible_metrics = 0;
+    for (size_t i = 0; i < UI_WEATHER_METRICS; ++i) {
+        if (!cJSON_IsNumber(metric_values[i])) {
+            lv_obj_add_flag(s_weather_metric_containers[i], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        char metric_text[24];
+        const char *unit = metric_units[i] != NULL ? metric_units[i] : "";
+        if (i == 0) snprintf(metric_text, sizeof(metric_text), "%.0f%%", metric_values[i]->valuedouble);
+        else if (unit[0] != '\0') snprintf(metric_text, sizeof(metric_text), "%.0f %s", metric_values[i]->valuedouble, unit);
+        else snprintf(metric_text, sizeof(metric_text), "%.0f", metric_values[i]->valuedouble);
+        lv_label_set_text(s_weather_metric_labels[i], metric_text);
+        lv_obj_align(s_weather_metric_containers[i], LV_ALIGN_TOP_LEFT, (int) (visible_metrics++ * 84), 122);
+        lv_obj_clear_flag(s_weather_metric_containers[i], LV_OBJ_FLAG_HIDDEN);
+    }
     lv_label_set_text(s_weather_temperature_label, temperature_text);
     set_weather_icon(s_weather_icons[0], condition_text);
 
