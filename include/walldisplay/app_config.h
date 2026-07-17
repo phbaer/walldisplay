@@ -9,9 +9,9 @@
 #define APP_DEVICE_NAME "Guition Wall Panel"
 #define APP_DEVICE_MODEL "ESP32-4848S040"
 #define APP_MANUFACTURER "Guition"
-#define APP_FW_VERSION "0.4.0"
+#define APP_FW_VERSION "0.5.0"
 /* Increment whenever MQTT topics, payloads, or semantics change. */
-#define APP_CONTRACT_VERSION "4"
+#define APP_CONTRACT_VERSION "5"
 
 #define APP_WIFI_MAX_SSID_LEN 32
 #define APP_WIFI_MAX_PASSWORD_LEN 64

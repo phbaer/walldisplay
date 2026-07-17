@@ -28,10 +28,10 @@ Both paths publish time, weather, media, favourites, chips, and footer state; ma
 
 ## MQTT contract
 
-The firmware and blueprint release is `0.4.0`; MQTT contract `4`. MQTT Sync publishes retained compatibility metadata to `<base>/set/blueprint_info`:
+The firmware and blueprint release is `0.5.0`; MQTT contract `5`. MQTT Sync publishes retained compatibility metadata to `<base>/set/blueprint_info`:
 
 ```json
-{"version":"0.4.0","contract":"4"}
+{"version":"0.5.0","contract":"5"}
 ```
 
 | Purpose | Topic | Notes |
@@ -41,7 +41,7 @@ The firmware and blueprint release is `0.4.0`; MQTT contract `4`. MQTT Sync publ
 | Commands | `<base>/cmd/...` | Buttons, media, sync, configuration, OTA, and screenshots. |
 | Panel state | `<base>/state/...` | Retained canonical values and diagnostics. |
 
-Display data uses `set/name`, `set/weather`, `set/media`, `set/clock`, `set/date`, `set/chipN`, `set/chipN/color`, `set/buttonN/label`, and `set/buttonN/state`. `set/media` accepts plain text or JSON, for example:
+Display data uses `set/name`, `set/weather`, `set/media`, `set/clock`, `set/date`, `set/chipN`, `set/chipN/color`, `set/buttonN/label`, and `set/buttonN/state`. The header shows one large, unified clock label in the upper-left with equal 14 px top and left padding, the panel name in smaller muted text below it, and the date in the upper-right. Select 24-hour (default) or 12-hour time in either synchronization path. Its Wi-Fi, MQTT, and Home Assistant indicators form one three-section rounded status control; only its outer corners are rounded. `set/media` accepts plain text or JSON, for example:
 
 ```json
 {"state":"playing","title":"Track","artist":"Artist","artwork_url":"https://example.invalid/cover.jpg"}
@@ -49,7 +49,7 @@ Display data uses `set/name`, `set/weather`, `set/media`, `set/clock`, `set/date
 
 Media commands are `cmd/media/previous`, `play_pause`, `next`, `volume_down`, `volume_up`, and `favoriteN`. Favourites publish retained labels and icons; their play-media JSON targets the selected player. `walldisplay_sync` fetches the selected player's artwork, converts it to a bounded JPEG, and serves it from a random-token panel URL; configure an internal or external Home Assistant URL reachable from the panel. MQTT Sync remains a no-custom-code alternative and forwards its media URL directly, so its source must already be a reachable baseline JPEG.
 
-Weather accepts text or JSON with `condition`, `temperature`, `humidity`, `pressure`, a `trend` of up to 25 historic temperature values, and up to three forecast entries. The current temperature uses a larger bold value; humidity and pressure appear as vertically aligned embedded-symbol/value rows rather than a redundant textual condition. The panel renders the last 24 hours of temperature history as a rounded background curve; it never uses forecast values. Both sync paths request 24 hourly Recorder means for the optional temperature sensor (or the weather entity when no sensor is configured), then append the current value. The trend requires Recorder data and a source entity that provides long-term statistics, normally a temperature sensor with `state_class: measurement`; otherwise the curve remains hidden. Both sync paths use tomorrow through day +3 only for the forecast cards; optional temperature, humidity, and pressure sensors override the corresponding weather-entity attributes. A configured footer state entity is toggled on press; otherwise the integration emits an event and MQTT Sync runs its configured action. `cmd/wake` and any touch restore brightness, while `cmd/sync` requests a complete refresh.
+Weather accepts text or JSON with `condition`, `temperature`, `humidity`, `pressure`, `wind_speed`, `rainfall`, `irradiance`, a `trend` of up to 25 historic temperature values, and up to three forecast entries. The current temperature uses a larger bold value; humidity, pressure, wind, rain, and solar irradiation are packed into an icon-led strip when numeric data is available. The `wind_unit`, `rainfall_unit`, and `irradiance_unit` fields preserve sensor units. The panel renders the last 24 hours of temperature history as a rounded background curve; it never uses forecast values. Both sync paths request 24 hourly Recorder means for the optional temperature sensor (or the weather entity when no sensor is configured), then append the current value. The trend requires Recorder data and a source entity that provides long-term statistics, normally a temperature sensor with `state_class: measurement`; otherwise the curve remains hidden. Both sync paths use tomorrow through day +3 only for the forecast cards; optional temperature, humidity, pressure, wind-speed, rainfall, and irradiance sensors override their matching weather-entity attributes. Wind falls back to the standard weather `wind_speed`/`wind_speed_unit` attributes; rainfall and irradiance use matching attributes when a provider exposes them. A configured footer state entity is toggled on press; otherwise the integration emits an event and MQTT Sync runs its configured action. `cmd/wake` and any touch restore brightness, while `cmd/sync` requests a complete refresh.
 
 **Capture Screenshot** (or `cmd/screenshot`) stores a 480×480 BMP in SPIFFS and publishes progress at `state/screenshot`, including a LAN URL when complete. Its HTTP endpoint is read-only but unauthenticated; keep it on a trusted network.
 

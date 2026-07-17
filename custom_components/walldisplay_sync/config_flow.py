@@ -17,10 +17,14 @@ from .const import (
     CONF_PANEL_NAME,
     CONF_PANEL_TOPIC,
     CONF_SCREEN_OFF_AFTER,
+    CONF_TIME_FORMAT,
     CONF_WEATHER_ENTITY,
     CONF_TEMPERATURE_ENTITY,
     CONF_HUMIDITY_ENTITY,
     CONF_PRESSURE_ENTITY,
+    CONF_WIND_SPEED_ENTITY,
+    CONF_RAINFALL_ENTITY,
+    CONF_IRRADIANCE_ENTITY,
     DOMAIN,
     FOOTER_BUTTON_COUNT,
     MEDIA_FAVORITE_COUNT,
@@ -55,9 +59,15 @@ def _display_schema(defaults: dict[str, object]) -> vol.Schema:
         vol.Optional(CONF_TEMPERATURE_ENTITY, default=defaults.get(CONF_TEMPERATURE_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
         vol.Optional(CONF_HUMIDITY_ENTITY, default=defaults.get(CONF_HUMIDITY_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
         vol.Optional(CONF_PRESSURE_ENTITY, default=defaults.get(CONF_PRESSURE_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+        vol.Optional(CONF_WIND_SPEED_ENTITY, default=defaults.get(CONF_WIND_SPEED_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+        vol.Optional(CONF_RAINFALL_ENTITY, default=defaults.get(CONF_RAINFALL_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+        vol.Optional(CONF_IRRADIANCE_ENTITY, default=defaults.get(CONF_IRRADIANCE_ENTITY, "")): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
         vol.Optional(CONF_DIM_AFTER, default=defaults.get(CONF_DIM_AFTER, 300)): vol.All(vol.Coerce(int), vol.Range(min=0, max=86400)),
         vol.Optional(CONF_SCREEN_OFF_AFTER, default=defaults.get(CONF_SCREEN_OFF_AFTER, 600)): vol.All(vol.Coerce(int), vol.Range(min=0, max=86400)),
         vol.Optional(CONF_DIM_BRIGHTNESS, default=defaults.get(CONF_DIM_BRIGHTNESS, 20)): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+        vol.Optional(CONF_TIME_FORMAT, default=defaults.get(CONF_TIME_FORMAT, "24h")): selector.SelectSelector(
+            selector.SelectSelectorConfig(options=["24h", "12h"])
+        ),
     })
 
 

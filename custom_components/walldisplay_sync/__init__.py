@@ -21,8 +21,10 @@ from .const import (
     CONF_WEATHER_ENTITY,
     CONF_TEMPERATURE_ENTITY,
     CONF_HUMIDITY_ENTITY, CONF_PRESSURE_ENTITY,
+    CONF_WIND_SPEED_ENTITY, CONF_RAINFALL_ENTITY, CONF_IRRADIANCE_ENTITY,
     CONF_DIM_AFTER,
     CONF_SCREEN_OFF_AFTER,
+    CONF_TIME_FORMAT,
     CONF_DIM_BRIGHTNESS,
     CONF_CHIP_OK_COLOR,
     CONF_CHIP_WARN_COLOR,
@@ -72,6 +74,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     temperature_entity = config.get(CONF_TEMPERATURE_ENTITY, "")
     humidity_entity = config.get(CONF_HUMIDITY_ENTITY, "")
     pressure_entity = config.get(CONF_PRESSURE_ENTITY, "")
+    wind_speed_entity = config.get(CONF_WIND_SPEED_ENTITY, "")
+    rainfall_entity = config.get(CONF_RAINFALL_ENTITY, "")
+    irradiance_entity = config.get(CONF_IRRADIANCE_ENTITY, "")
     entry.runtime_data = WallDisplayRuntime(hass, topic, entry.title, entry.unique_id or entry.entry_id)
     artwork = ArtworkCache(hass, entry.entry_id)
     async_register_cache(hass, artwork)
@@ -117,7 +122,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def publish_clock(_: datetime | None = None) -> None:
         now = dt_util.now()
-        await mqtt.async_publish(hass, f"{topic}/set/clock", now.strftime("%H:%M"), 1, True)
+        time_format = "%-I:%M %p" if config.get(CONF_TIME_FORMAT, "24h") == "12h" else "%H:%M"
+        await mqtt.async_publish(hass, f"{topic}/set/clock", now.strftime(time_format), 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/date", now.strftime("%a, %d %b"), 1, True)
 
     async def publish_weather(_: Event | None = None) -> None:
@@ -134,6 +140,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             value = hass.states.get(entity).state if entity and hass.states.get(entity) else attrs.get(attribute)
             try: return float(value)
             except (TypeError, ValueError): return None
+        def metric_with_unit(entity: str, attribute: str, unit_attribute: str) -> tuple[float | None, str]:
+            source = hass.states.get(entity) if entity else None
+            value = source.state if source else attrs.get(attribute)
+            unit = source.attributes.get("unit_of_measurement") if source else attrs.get(unit_attribute, "")
+            try: return float(value), str(unit or "")
+            except (TypeError, ValueError): return None, ""
         temperature = metric(temperature_entity, "temperature")
         trend_entity = temperature_entity or weather_entity
         history = []
@@ -154,7 +166,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         trend = [value for item in history if (value := number(item.get("mean"))) is not None]
         if temperature is not None and (not trend or trend[-1] != temperature): trend.append(temperature)
         trend = trend[-25:]
-        payload = {"condition": state.state, "temperature": temperature, "humidity": metric(humidity_entity, "humidity"), "pressure": metric(pressure_entity, "pressure"), "trend": trend, "forecast": [
+        wind_speed, wind_unit = metric_with_unit(wind_speed_entity, "wind_speed", "wind_speed_unit")
+        rainfall, rainfall_unit = metric_with_unit(rainfall_entity, "precipitation", "precipitation_unit")
+        irradiance, irradiance_unit = metric_with_unit(irradiance_entity, "irradiance", "irradiance_unit")
+        payload = {"condition": state.state, "temperature": temperature, "humidity": metric(humidity_entity, "humidity"), "pressure": metric(pressure_entity, "pressure"), "wind_speed": wind_speed, "wind_unit": wind_unit, "rainfall": rainfall, "rainfall_unit": rainfall_unit, "irradiance": irradiance, "irradiance_unit": irradiance_unit, "trend": trend, "forecast": [
             {"day": _forecast_day(item.get("datetime", "")), "condition": item.get("condition", "unknown"), "high": item.get("temperature"), "low": item.get("templow", item.get("temperature"))} for item in forecast]}
         await mqtt.async_publish(hass, f"{topic}/set/weather", json.dumps(payload), 1, True)
 
@@ -254,7 +269,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(async_track_state_change_event(hass, [entity_id], publish_media))
     entry.async_on_unload(async_track_time_interval(hass, publish_clock, timedelta(minutes=1)))
-    weather_sources = [entity for entity in [weather_entity, temperature_entity, humidity_entity, pressure_entity] if entity]
+    weather_sources = [entity for entity in [weather_entity, temperature_entity, humidity_entity, pressure_entity, wind_speed_entity, rainfall_entity, irradiance_entity] if entity]
     if weather_sources:
         entry.async_on_unload(async_track_state_change_event(hass, weather_sources, publish_weather))
     chip_entities = [config.get(chip_sensor_key(slot), "") for slot in range(1, CHIP_COUNT + 1)]
