@@ -686,9 +686,9 @@ esp_err_t ui_init(const display_board_handle_t *board) {
 
     s_date_label = lv_label_create(header);
     lv_label_set_text(s_date_label, "---, -- ---");
-    lv_obj_set_style_text_font(s_date_label, font_ui_14(), 0);
+    lv_obj_set_style_text_font(s_date_label, font_time(), 0);
     lv_obj_set_style_text_color(s_date_label, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
-    lv_obj_align(s_date_label, LV_ALIGN_TOP_RIGHT, -14, 8);
+    lv_obj_align(s_date_label, LV_ALIGN_TOP_RIGHT, -14, 14);
 
     lv_obj_t *chip_row = lv_obj_create(header);
     lv_obj_remove_style_all(chip_row);

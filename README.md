@@ -41,7 +41,7 @@ The firmware and blueprint release is `0.5.0`; MQTT contract `5`. MQTT Sync publ
 | Commands | `<base>/cmd/...` | Buttons, media, sync, configuration, OTA, and screenshots. |
 | Panel state | `<base>/state/...` | Retained canonical values and diagnostics. |
 
-Display data uses `set/name`, `set/weather`, `set/media`, `set/clock`, `set/date`, `set/chipN`, `set/chipN/color`, `set/buttonN/label`, and `set/buttonN/state`. The header shows one large, unified clock label in the upper-left with equal 14 px top and left padding, the panel name in smaller muted text below it, and the date in the upper-right. Select 24-hour (default) or 12-hour time in either synchronization path. Its Wi-Fi, MQTT, and Home Assistant indicators form one three-section rounded status control; only its outer corners are rounded. `set/media` accepts plain text or JSON, for example:
+Display data uses `set/name`, `set/weather`, `set/media`, `set/clock`, `set/date`, `set/chipN`, `set/chipN/color`, `set/buttonN/label`, and `set/buttonN/state`. The header shows large, unified clock and date labels at the upper left and upper right, respectively, both with 14 px top and outer-side padding; the panel name is smaller and muted below the clock. Select 24-hour (default) or 12-hour time in either synchronization path. Its Wi-Fi, MQTT, and Home Assistant indicators form one three-section rounded status control; only its outer corners are rounded. `set/media` accepts plain text or JSON, for example:
 
 ```json
 {"state":"playing","title":"Track","artist":"Artist","artwork_url":"https://example.invalid/cover.jpg"}
