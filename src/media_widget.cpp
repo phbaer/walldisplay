@@ -52,15 +52,15 @@ public:
 
         value_label_ = lv_label_create(page_);
         lv_label_set_text(value_label_, "Waiting for media...");
-        lv_obj_set_width(value_label_, 250);
+        lv_obj_set_width(value_label_, 226);
         lv_label_set_long_mode(value_label_, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_font(value_label_, &ui_font_noto_16, 0);
         lv_obj_set_style_text_color(value_label_, lv_color_hex(kTextColor), 0);
-        lv_obj_align(value_label_, LV_ALIGN_TOP_LEFT, 122, 4);
+        lv_obj_align(value_label_, LV_ALIGN_TOP_LEFT, 146, 4);
 
         placeholder_ = lv_obj_create(page_);
         lv_obj_remove_style_all(placeholder_);
-        lv_obj_set_size(placeholder_, 112, 112);
+        lv_obj_set_size(placeholder_, 136, 136);
         lv_obj_set_style_bg_color(placeholder_, lv_color_hex(kControlColor), 0);
         lv_obj_set_style_bg_opa(placeholder_, LV_OPA_90, 0);
         lv_obj_set_style_border_width(placeholder_, 1, 0);
@@ -75,7 +75,7 @@ public:
         lv_obj_center(symbol);
 
         artwork_ = lv_image_create(page_);
-        lv_obj_set_size(artwork_, 112, 112);
+        lv_obj_set_size(artwork_, 136, 136);
         lv_obj_align(artwork_, LV_ALIGN_TOP_LEFT, 0, 0);
         lv_obj_add_flag(artwork_, LV_OBJ_FLAG_HIDDEN);
         return ESP_OK;
