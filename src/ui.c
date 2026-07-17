@@ -807,7 +807,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_set_style_pad_all(volume_rocker, 0, 0);
     lv_obj_set_style_clip_corner(volume_rocker, true, 0);
     lv_obj_align(volume_rocker, LV_ALIGN_TOP_RIGHT, 0, 0);
-    lv_obj_t *volume_up_button = create_media_button(volume_rocker, LV_SYMBOL_PLUS, 50, 46, "volume_up", media_control_event_cb, true);
+    lv_obj_t *volume_up_button = create_media_button(volume_rocker, LV_SYMBOL_PLUS, 50, 38, "volume_up", media_control_event_cb, true);
     style_volume_rocker_button(volume_up_button);
     lv_obj_align(volume_up_button, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_add_event_cb(volume_up_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_up");
@@ -815,7 +815,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     s_media_volume_slider = lv_slider_create(volume_rocker);
     lv_slider_set_range(s_media_volume_slider, 0, 100);
     lv_slider_set_value(s_media_volume_slider, 50, LV_ANIM_OFF);
-    lv_obj_set_size(s_media_volume_slider, 50, 84);
+    lv_obj_set_size(s_media_volume_slider, 24, 100);
     lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(0x112536), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_media_volume_slider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(s_media_volume_slider, 0, LV_PART_MAIN);
@@ -825,10 +825,10 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(UI_COLOR_TEXT), LV_PART_KNOB);
     lv_obj_set_style_border_color(s_media_volume_slider, lv_color_hex(0x5FA9DD), LV_PART_KNOB);
     lv_obj_set_style_border_width(s_media_volume_slider, 2, LV_PART_KNOB);
-    lv_obj_align(s_media_volume_slider, LV_ALIGN_TOP_MID, 0, 46);
+    lv_obj_align(s_media_volume_slider, LV_ALIGN_TOP_MID, 0, 38);
     lv_obj_add_event_cb(s_media_volume_slider, media_volume_event_cb, LV_EVENT_RELEASED, NULL);
 
-    lv_obj_t *volume_down_button = create_media_button(volume_rocker, LV_SYMBOL_MINUS, 50, 46, "volume_down", media_control_event_cb, true);
+    lv_obj_t *volume_down_button = create_media_button(volume_rocker, LV_SYMBOL_MINUS, 50, 38, "volume_down", media_control_event_cb, true);
     style_volume_rocker_button(volume_down_button);
     lv_obj_align(volume_down_button, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_event_cb(volume_down_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_down");
