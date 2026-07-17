@@ -587,7 +587,8 @@ static void dynamic_button_event_cb(lv_event_t *event) {
 
 static void media_control_event_cb(lv_event_t *event) {
     const char *command = lv_event_get_user_data(event);
-    if (lv_event_get_code(event) == LV_EVENT_CLICKED && publish_media_command(command) != ESP_OK) {
+    const lv_event_code_t code = lv_event_get_code(event);
+    if ((code == LV_EVENT_CLICKED || code == LV_EVENT_LONG_PRESSED_REPEAT) && publish_media_command(command) != ESP_OK) {
         ESP_LOGW(TAG, "Media command publish failed");
     }
 }
@@ -771,23 +772,20 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_set_flex_flow(media_controls, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(media_controls, 8, 0);
     lv_obj_align(media_controls, LV_ALIGN_BOTTOM_MID, 0, -42);
-    create_media_button(media_controls, LV_SYMBOL_PREV, 78, 52, "previous", media_control_event_cb, true);
-    lv_obj_t *play_button = create_media_button(media_controls, LV_SYMBOL_PLAY, 78, 52, "play_pause", media_control_event_cb, true);
+    create_media_button(media_controls, LV_SYMBOL_PREV, 56, 52, "previous", media_control_event_cb, true);
+    lv_obj_t *play_button = create_media_button(media_controls, LV_SYMBOL_PLAY, 56, 52, "play_pause", media_control_event_cb, true);
     s_media_play_label = lv_obj_get_child(play_button, 0);
     media_widget_set_play_label(s_media_widget, s_media_play_label);
-    create_media_button(media_controls, LV_SYMBOL_NEXT, 78, 52, "next", media_control_event_cb, true);
+    create_media_button(media_controls, LV_SYMBOL_NEXT, 56, 52, "next", media_control_event_cb, true);
+    lv_obj_t *volume_down_button = create_media_button(media_controls, LV_SYMBOL_MINUS, 34, 52, "volume_down", media_control_event_cb, true);
+    lv_obj_add_event_cb(volume_down_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_down");
     lv_obj_t *volume_control = lv_obj_create(media_controls);
     lv_obj_remove_style_all(volume_control);
-    lv_obj_set_size(volume_control, 166, 52);
-    lv_obj_t *volume_icon = lv_label_create(volume_control);
-    lv_label_set_text(volume_icon, LV_SYMBOL_VOLUME_MID);
-    lv_obj_set_style_text_font(volume_icon, font_symbols_14(), 0);
-    lv_obj_set_style_text_color(volume_icon, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
-    lv_obj_align(volume_icon, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_size(volume_control, 142, 52);
     s_media_volume_slider = lv_slider_create(volume_control);
     lv_slider_set_range(s_media_volume_slider, 0, 100);
     lv_slider_set_value(s_media_volume_slider, 50, LV_ANIM_OFF);
-    lv_obj_set_size(s_media_volume_slider, 138, 14);
+    lv_obj_set_size(s_media_volume_slider, 142, 14);
     lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(UI_COLOR_CONTROL), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_media_volume_slider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(0x5FA9DD), LV_PART_INDICATOR);
@@ -795,6 +793,8 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(UI_COLOR_TEXT), LV_PART_KNOB);
     lv_obj_align(s_media_volume_slider, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_add_event_cb(s_media_volume_slider, media_volume_event_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_t *volume_up_button = create_media_button(media_controls, LV_SYMBOL_PLUS, 34, 52, "volume_up", media_control_event_cb, true);
+    lv_obj_add_event_cb(volume_up_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_up");
     lv_obj_t *media_favorites = lv_obj_create(s_media_page);
     lv_obj_remove_style_all(media_favorites);
     lv_obj_set_size(media_favorites, 424, 34);
