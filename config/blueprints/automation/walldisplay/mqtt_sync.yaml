@@ -551,6 +551,9 @@ triggers:
   - id: media_volume_up
     trigger: mqtt
     topic: "{{ panel_topic }}/cmd/media/volume_up"
+  - id: media_volume
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/volume"
   - id: media_favorite1
     trigger: mqtt
     topic: "{{ panel_topic }}/cmd/media/favorite1"
@@ -898,6 +901,7 @@ actions:
                   'artist': artist if artist else '',
                   'album': state_attr(media_entity, 'media_album_name') | default('', true),
                   'source': state_attr(media_entity, 'source') | default('', true),
+                  'volume_level': state_attr(media_entity, 'volume_level'),
                   'artwork_url': (
                     artwork_url
                     if artwork_url.startswith(('http://', 'https://'))
@@ -1168,6 +1172,14 @@ actions:
         sequence:
           - action: media_player.volume_up
             target: {entity_id: "{{ media_entity }}"}
+      - conditions: "{{ trigger.id == 'media_volume' }}"
+        sequence:
+          - action: media_player.volume_set
+            target: {entity_id: "{{ media_entity }}"}
+            data:
+              volume_level: >-
+                {% set volume = trigger.payload | float(0) %}
+                {{ 0 if volume < 0 else 1 if volume > 100 else volume / 100 }}
       - conditions: "{{ trigger.id == 'media_favorite1' and media_favorite1_label | length > 0 and media_favorite1_payload | length > 0 }}"
         sequence:
           - action: media_player.play_media
