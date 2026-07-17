@@ -19,6 +19,8 @@ from .const import (
     CONF_PANEL_NAME,
     CONF_PANEL_TOPIC,
     CONF_WEATHER_ENTITY,
+    CONF_TEMPERATURE_ENTITY,
+    CONF_HUMIDITY_ENTITY, CONF_PRESSURE_ENTITY,
     CONF_DIM_AFTER,
     CONF_SCREEN_OFF_AFTER,
     CONF_DIM_BRIGHTNESS,
@@ -35,9 +37,30 @@ from .const import (
     favorite_payload_key,
 )
 from .runtime import WallDisplayRuntime
+from .artwork import ArtworkCache, async_register_cache, async_unregister_cache
 
 _LOGGER = logging.getLogger(__name__)
 _PLATFORMS = [Platform.BUTTON, Platform.EVENT]
+
+
+def _forecast_day(value: Any) -> str:
+    """Return a compact weekday label from a Home Assistant forecast timestamp."""
+    if isinstance(value, datetime):
+        return value.strftime("%a")
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).strftime("%a")
+    except ValueError:
+        return str(value)[:3]
+
+
+def _artwork_url(hass: HomeAssistant, value: Any) -> str:
+    """Make Home Assistant's tokenized relative media-proxy URLs panel-readable."""
+    if not isinstance(value, str) or not value:
+        return ""
+    if value.startswith(("http://", "https://")):
+        return value
+    base_url = hass.config.internal_url or hass.config.external_url
+    return f"{base_url.rstrip('/')}{value}" if base_url and value.startswith("/") else ""
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -46,7 +69,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     panel_name = config.get(CONF_PANEL_NAME, "") or entry.title
     entity_id = config[CONF_MEDIA_ENTITY]
     weather_entity = config.get(CONF_WEATHER_ENTITY, "")
+    temperature_entity = config.get(CONF_TEMPERATURE_ENTITY, "")
+    humidity_entity = config.get(CONF_HUMIDITY_ENTITY, "")
+    pressure_entity = config.get(CONF_PRESSURE_ENTITY, "")
     entry.runtime_data = WallDisplayRuntime(hass, topic, entry.title, entry.unique_id or entry.entry_id)
+    artwork = ArtworkCache(hass, entry.entry_id)
+    async_register_cache(hass, artwork)
+    entry.async_on_unload(lambda: async_unregister_cache(hass, entry.entry_id))
 
     async def publish_media(_: Event | None = None) -> None:
         state = hass.states.get(entity_id)
@@ -59,8 +88,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "artist": attrs.get("media_artist") or "",
             "album": attrs.get("media_album_name") or "",
             "source": attrs.get("source") or "",
-            "artwork_url": attrs.get("media_image_url") or "",
+            "artwork_url": "",
         }
+        source = _artwork_url(hass, attrs.get("entity_picture") or attrs.get("media_image_url"))
+        base_url = hass.config.internal_url or hass.config.external_url
+        if base_url and await artwork.async_update(source):
+            payload["artwork_url"] = artwork.url(base_url)
         await mqtt.async_publish(hass, f"{topic}/set/media", json.dumps(payload), 1, True)
 
     async def publish_favorites() -> None:
@@ -81,7 +114,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not weather_entity or (state := hass.states.get(weather_entity)) is None:
             return
         attrs = state.attributes
-        await mqtt.async_publish(hass, f"{topic}/set/weather", json.dumps({"condition": state.state, "temperature": attrs.get("temperature"), "forecast": []}), 1, True)
+        forecast = []
+        try:
+            response = await hass.services.async_call("weather", "get_forecasts", {"type": "daily"}, target={"entity_id": weather_entity}, blocking=True, return_response=True)
+            forecast = response.get(weather_entity, {}).get("forecast", [])[1:4]
+        except Exception:  # Weather providers may not support forecasts.
+            _LOGGER.debug("Unable to retrieve daily weather forecast", exc_info=True)
+        def metric(entity: str, attribute: str) -> Any:
+            value = hass.states.get(entity).state if entity and hass.states.get(entity) else attrs.get(attribute)
+            try: return float(value)
+            except (TypeError, ValueError): return None
+        temperature = metric(temperature_entity, "temperature")
+        trend_entity = temperature_entity or weather_entity
+        history = []
+        try:
+            response = await hass.services.async_call("recorder", "get_statistics", {
+                "statistic_ids": [trend_entity],
+                "start_time": (dt_util.now() - timedelta(hours=24)).isoformat(),
+                "end_time": dt_util.now().isoformat(),
+                "period": "hour",
+                "types": ["mean"],
+            }, blocking=True, return_response=True)
+            history = response.get("statistics", {}).get(trend_entity, [])
+        except Exception:  # Recorder statistics may be unavailable for the source entity.
+            _LOGGER.debug("Unable to retrieve temperature history", exc_info=True)
+        def number(value: Any) -> float | None:
+            try: return float(value)
+            except (TypeError, ValueError): return None
+        trend = [value for item in history if (value := number(item.get("mean"))) is not None]
+        if temperature is not None and (not trend or trend[-1] != temperature): trend.append(temperature)
+        trend = trend[-25:]
+        payload = {"condition": state.state, "temperature": temperature, "humidity": metric(humidity_entity, "humidity"), "pressure": metric(pressure_entity, "pressure"), "trend": trend, "forecast": [
+            {"day": _forecast_day(item.get("datetime", "")), "condition": item.get("condition", "unknown"), "high": item.get("temperature"), "low": item.get("templow", item.get("temperature"))} for item in forecast]}
+        await mqtt.async_publish(hass, f"{topic}/set/weather", json.dumps(payload), 1, True)
 
     async def publish_chip(slot: int) -> None:
         sensor = config.get(chip_sensor_key(slot), ""); state = hass.states.get(sensor) if sensor else None
@@ -159,8 +224,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(async_track_state_change_event(hass, [entity_id], publish_media))
     entry.async_on_unload(async_track_time_interval(hass, publish_clock, timedelta(minutes=1)))
-    if weather_entity:
-        entry.async_on_unload(async_track_state_change_event(hass, [weather_entity], publish_weather))
+    weather_sources = [entity for entity in [weather_entity, temperature_entity, humidity_entity, pressure_entity] if entity]
+    if weather_sources:
+        entry.async_on_unload(async_track_state_change_event(hass, weather_sources, publish_weather))
     chip_entities = [config.get(chip_sensor_key(slot), "") for slot in range(1, CHIP_COUNT + 1)]
     entry.async_on_unload(async_track_state_change_event(hass, [entity for entity in chip_entities if entity], publish_chips))
     footer_entities = [config.get(footer_state_key(slot), "") for slot in range(1, FOOTER_BUTTON_COUNT + 1)]

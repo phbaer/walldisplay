@@ -19,5 +19,6 @@ Apply this workflow to every change.
    - firmware: `idf.py build`;
    - blueprint: parse YAML while accepting the Home Assistant `!input` tag;
    - all changes: `git diff --check` and review the working tree.
+7. When an implementation step is complete and its changes are verified, commit it if appropriate. Use a short, descriptive message and keep unrelated changes separate.
 
 Do not introduce vendor-specific instructions, tool names, or metadata into these repository rules. Keep instructions in standard Markdown so any assistant can follow them.

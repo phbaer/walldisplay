@@ -255,6 +255,7 @@ static void on_mqtt_message(const char *topic, const char *payload, void *user_c
     if (strcmp(topic, expected_topic) == 0) {
         ui_set_media_text(payload);
         cJSON *media = cJSON_Parse(payload); const cJSON *url = cJSON_IsObject(media) ? cJSON_GetObjectItemCaseSensitive(media, "artwork_url") : NULL;
+        ESP_LOGI(TAG, "Media artwork URL: %s", cJSON_IsString(url) && url->valuestring[0] ? "provided" : "missing");
         if (cJSON_IsString(url)) media_artwork_request(url->valuestring); else media_artwork_request(""); cJSON_Delete(media);
         ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/media", payload, true));
         return;
@@ -264,6 +265,7 @@ static void on_mqtt_message(const char *topic, const char *payload, void *user_c
     if (strcmp(topic, expected_topic) == 0) {
         ui_set_media_text(payload);
         cJSON *media = cJSON_Parse(payload); const cJSON *url = cJSON_IsObject(media) ? cJSON_GetObjectItemCaseSensitive(media, "artwork_url") : NULL;
+        ESP_LOGI(TAG, "Media artwork URL: %s", cJSON_IsString(url) && url->valuestring[0] ? "provided" : "missing");
         if (cJSON_IsString(url)) media_artwork_request(url->valuestring); else media_artwork_request(""); cJSON_Delete(media);
         return;
     }

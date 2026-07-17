@@ -5,6 +5,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 esp_err_t ui_init(const display_board_handle_t *board);
 esp_err_t ui_set_connection_status(const char *status_text);
 esp_err_t ui_set_title_text(const char *title_text);
@@ -22,3 +26,7 @@ esp_err_t ui_set_button_label(size_t index, const char *label_text);
 esp_err_t ui_set_button_state(size_t index, const char *state_text);
 esp_err_t ui_set_measurement_chip(size_t index, const char *chip_text);
 esp_err_t ui_set_measurement_chip_color(size_t index, const char *color_text);
+
+#ifdef __cplusplus
+}
+#endif

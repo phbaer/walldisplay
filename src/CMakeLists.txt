@@ -16,7 +16,7 @@ if(NOT CMAKE_SCRIPT_MODE_FILE)
     add_custom_target(app_config_defaults_header DEPENDS ${APP_CONFIG_GEN_HEADER})
 endif()
 
-FILE(GLOB_RECURSE app_sources ${CMAKE_SOURCE_DIR}/src/*.c)
+FILE(GLOB_RECURSE app_sources ${CMAKE_SOURCE_DIR}/src/*.c ${CMAKE_SOURCE_DIR}/src/*.cpp)
 
 idf_component_register(
     SRCS ${app_sources}

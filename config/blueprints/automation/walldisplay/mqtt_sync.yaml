@@ -1,5 +1,5 @@
 blueprint:
-  name: WallDisplay MQTT Sync v0.3.1 (Contract 3)
+  name: WallDisplay MQTT Sync v0.4.0 (Contract 4)
   description: >-
     Publish panel name, clock, weather, rich media controls and favourites, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
@@ -24,6 +24,21 @@ blueprint:
       selector:
         entity:
           domain: weather
+    temperature_entity:
+      name: Temperature sensor (optional)
+      description: Overrides the weather entity temperature attribute.
+      default: ""
+      selector: {entity: {domain: sensor}}
+    humidity_entity:
+      name: Humidity sensor (optional)
+      description: Overrides the weather entity humidity attribute.
+      default: ""
+      selector: {entity: {domain: sensor}}
+    pressure_entity:
+      name: Pressure sensor (optional)
+      description: Overrides the weather entity pressure attribute.
+      default: ""
+      selector: {entity: {domain: sensor}}
     media_entity:
       name: Media player entity
       selector:
@@ -347,11 +362,14 @@ trace:
   stored_traces: 20
 
 variables:
-  blueprint_version: "0.3.1"
-  panel_contract_version: "3"
+  blueprint_version: "0.4.0"
+  panel_contract_version: "4"
   panel_topic: !input panel_topic
   panel_name: !input panel_name
   weather_entity: !input weather_entity
+  temperature_entity: !input temperature_entity
+  humidity_entity: !input humidity_entity
+  pressure_entity: !input pressure_entity
   media_entity: !input media_entity
   media_favorite1_label: !input media_favorite1_label
   media_favorite1_icon: !input media_favorite1_icon
@@ -769,6 +787,16 @@ actions:
             data:
               type: daily
             response_variable: daily_forecast
+          - action: recorder.get_statistics
+            data:
+              statistic_ids:
+                - "{{ temperature_entity if temperature_entity | length > 0 else weather_entity }}"
+              start_time: "{{ (now() - timedelta(hours=24)).isoformat() }}"
+              end_time: "{{ now().isoformat() }}"
+              period: hour
+              types: [mean]
+            response_variable: temperature_history
+            continue_on_error: true
           - action: mqtt.publish
             data:
               topic: "{{ panel_topic }}/set/weather"
@@ -776,10 +804,22 @@ actions:
               retain: true
               payload: >-
                 {% set condition = states(weather_entity) %}
-                {% set temp = state_attr(weather_entity, 'temperature') %}
+                {% set temp = (states(temperature_entity) if temperature_entity | length > 0 else state_attr(weather_entity, 'temperature')) | float(none) %}
                 {% set forecast = daily_forecast[weather_entity]['forecast'] | default([], true) %}
-                {% set ns = namespace(days=[]) %}
-                {% for item in forecast[:3] %}
+                {% set trend_entity = temperature_entity if temperature_entity | length > 0 else weather_entity %}
+                {% set history = (temperature_history | default({}, true)).get('statistics', {}).get(trend_entity, []) %}
+                {% set humidity = states(humidity_entity) if humidity_entity | length > 0 else state_attr(weather_entity, 'humidity') %}
+                {% set pressure = states(pressure_entity) if pressure_entity | length > 0 else state_attr(weather_entity, 'pressure') %}
+                {% set ns = namespace(days=[], trend=[]) %}
+                {% for item in history %}
+                  {% if item.mean is number %}
+                    {% set ns.trend = ns.trend + [item.mean] %}
+                  {% endif %}
+                {% endfor %}
+                {% if temp is number and (ns.trend | count == 0 or ns.trend[-1] != temp) %}
+                  {% set ns.trend = ns.trend + [temp] %}
+                {% endif %}
+                {% for item in forecast[1:4] %}
                   {% set ns.days = ns.days + [{
                     'day': as_datetime(item.datetime).strftime('%a'),
                     'condition': item.condition,
@@ -790,6 +830,9 @@ actions:
                 {{ {
                   'condition': condition,
                   'temperature': temp if temp is number else none,
+                  'humidity': humidity | float(none),
+                  'pressure': pressure | float(none),
+                  'trend': ns.trend[-25:],
                   'forecast': ns.days
                 } | tojson }}
 
@@ -805,13 +848,22 @@ actions:
                 {% set state = states(media_entity) %}
                 {% set title = state_attr(media_entity, 'media_title') %}
                 {% set artist = state_attr(media_entity, 'media_artist') %}
+                {% set artwork_url = state_attr(media_entity, 'entity_picture') | default(state_attr(media_entity, 'media_image_url') | default('', true), true) %}
+                {% set home_assistant_url = config.internal_url | default(config.external_url | default('', true), true) | regex_replace('/$', '') %}
                 {{ {
                   'state': state,
                   'title': title if title else ('Media idle' if state in ['off', 'idle', 'standby'] else state | title),
                   'artist': artist if artist else '',
                   'album': state_attr(media_entity, 'media_album_name') | default('', true),
                   'source': state_attr(media_entity, 'source') | default('', true),
-                  'artwork_url': state_attr(media_entity, 'media_image_url') | default('', true)
+                  'artwork_url': (
+                    artwork_url
+                    if artwork_url.startswith(('http://', 'https://'))
+                    else (
+                      home_assistant_url ~ artwork_url
+                      if artwork_url.startswith('/') else ''
+                    )
+                  )
                 } | tojson }}
 
   - choose:
