@@ -128,6 +128,15 @@ static void style_button(lv_obj_t *button) {
     lv_obj_set_style_radius(button, 12, LV_PART_MAIN);
 }
 
+static void style_volume_rocker_button(lv_obj_t *button) {
+    lv_obj_remove_style_all(button);
+    lv_obj_set_style_bg_color(button, lv_color_hex(0x17374D), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(button, lv_color_hex(0x285875), LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(button, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(button, 0, LV_PART_MAIN);
+}
+
 static lv_obj_t *create_switch_indicator(lv_obj_t *button) {
     lv_obj_t *track = lv_obj_create(button);
     lv_obj_remove_style_all(track);
@@ -781,7 +790,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     }
     lv_obj_t *media_controls = lv_obj_create(s_media_page);
     lv_obj_remove_style_all(media_controls);
-    lv_obj_set_size(media_controls, 424, 54);
+    lv_obj_set_size(media_controls, 184, 54);
     lv_obj_set_layout(media_controls, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(media_controls, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(media_controls, 8, 0);
@@ -791,24 +800,38 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     s_media_play_label = lv_obj_get_child(play_button, 0);
     media_widget_set_play_label(s_media_widget, s_media_play_label);
     create_media_button(media_controls, LV_SYMBOL_NEXT, 56, 52, "next", media_control_event_cb, true);
-    lv_obj_t *volume_down_button = create_media_button(media_controls, LV_SYMBOL_MINUS, 34, 52, "volume_down", media_control_event_cb, true);
-    lv_obj_add_event_cb(volume_down_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_down");
-    lv_obj_t *volume_control = lv_obj_create(media_controls);
-    lv_obj_remove_style_all(volume_control);
-    lv_obj_set_size(volume_control, 142, 52);
-    s_media_volume_slider = lv_slider_create(volume_control);
+
+    lv_obj_t *volume_rocker = lv_obj_create(s_media_page);
+    style_panel(volume_rocker, 0x112536, 14);
+    lv_obj_set_size(volume_rocker, 50, 176);
+    lv_obj_set_style_pad_all(volume_rocker, 0, 0);
+    lv_obj_set_style_clip_corner(volume_rocker, true, 0);
+    lv_obj_align(volume_rocker, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_t *volume_up_button = create_media_button(volume_rocker, LV_SYMBOL_PLUS, 50, 46, "volume_up", media_control_event_cb, true);
+    style_volume_rocker_button(volume_up_button);
+    lv_obj_align(volume_up_button, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_add_event_cb(volume_up_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_up");
+
+    s_media_volume_slider = lv_slider_create(volume_rocker);
     lv_slider_set_range(s_media_volume_slider, 0, 100);
     lv_slider_set_value(s_media_volume_slider, 50, LV_ANIM_OFF);
-    lv_obj_set_size(s_media_volume_slider, 142, 14);
-    lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(UI_COLOR_CONTROL), LV_PART_MAIN);
+    lv_obj_set_size(s_media_volume_slider, 50, 84);
+    lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(0x112536), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_media_volume_slider, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(s_media_volume_slider, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(0x5FA9DD), LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(s_media_volume_slider, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(s_media_volume_slider, 0, LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(UI_COLOR_TEXT), LV_PART_KNOB);
-    lv_obj_align(s_media_volume_slider, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_style_border_color(s_media_volume_slider, lv_color_hex(0x5FA9DD), LV_PART_KNOB);
+    lv_obj_set_style_border_width(s_media_volume_slider, 2, LV_PART_KNOB);
+    lv_obj_align(s_media_volume_slider, LV_ALIGN_TOP_MID, 0, 46);
     lv_obj_add_event_cb(s_media_volume_slider, media_volume_event_cb, LV_EVENT_RELEASED, NULL);
-    lv_obj_t *volume_up_button = create_media_button(media_controls, LV_SYMBOL_PLUS, 34, 52, "volume_up", media_control_event_cb, true);
-    lv_obj_add_event_cb(volume_up_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_up");
+
+    lv_obj_t *volume_down_button = create_media_button(volume_rocker, LV_SYMBOL_MINUS, 50, 46, "volume_down", media_control_event_cb, true);
+    style_volume_rocker_button(volume_down_button);
+    lv_obj_align(volume_down_button, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_event_cb(volume_down_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_down");
     lv_obj_t *media_favorites = lv_obj_create(s_media_page);
     lv_obj_remove_style_all(media_favorites);
     lv_obj_set_size(media_favorites, 424, 34);
