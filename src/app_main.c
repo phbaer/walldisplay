@@ -110,6 +110,9 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
     snprintf(topic, sizeof(topic), "%s/cmd/screenshot", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
+    snprintf(topic, sizeof(topic), "%s/cmd/page", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+
     snprintf(topic, sizeof(topic), "%s/set/display_power", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
@@ -207,10 +210,17 @@ static void on_mqtt_message(const char *topic, const char *payload, void *user_c
 
     snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/screenshot", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
-        const esp_err_t err = screenshot_request();
+        const esp_err_t err = payload[0] == '\0' ? screenshot_request() : screenshot_request_named(payload);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "Screenshot request rejected: %s", esp_err_to_name(err));
         }
+        return;
+    }
+
+    snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/page", config->base_topic);
+    if (strcmp(topic, expected_topic) == 0) {
+        const esp_err_t err = ui_show_page(payload);
+        if (err != ESP_OK) ESP_LOGW(TAG, "Page request rejected: %s", esp_err_to_name(err));
         return;
     }
 

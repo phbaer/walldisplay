@@ -628,6 +628,20 @@ static void page_switch_event_cb(lv_event_t *event) {
     lv_obj_clear_flag(next, LV_OBJ_FLAG_HIDDEN);
 }
 
+esp_err_t ui_show_page(const char *page_name) {
+    if (page_name == NULL || !lvgl_port_lock(0)) return ESP_ERR_INVALID_ARG;
+    lv_obj_t *next = string_equals_ci(page_name, "weather") ? s_weather_page :
+                     string_equals_ci(page_name, "media") ? s_media_page : NULL;
+    if (next == NULL || s_weather_page == NULL || s_media_page == NULL) {
+        lvgl_port_unlock();
+        return ESP_ERR_INVALID_ARG;
+    }
+    lv_obj_add_flag(next == s_weather_page ? s_media_page : s_weather_page, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(next, LV_OBJ_FLAG_HIDDEN);
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
 static void update_footer_layout_locked(void) {
     size_t visible_buttons = 0;
     for (size_t i = 0; i < UI_MAX_DYNAMIC_BUTTONS; ++i) {

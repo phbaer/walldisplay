@@ -19,9 +19,9 @@
 #include "freertos/task.h"
 
 #define SCREENSHOT_MOUNT_PATH "/spiffs"
-#define SCREENSHOT_FILE_PATH SCREENSHOT_MOUNT_PATH "/screenshot.bmp"
-#define SCREENSHOT_TEMP_PATH SCREENSHOT_MOUNT_PATH "/screenshot.tmp"
 #define SCREENSHOT_URI "/screenshot.bmp"
+#define SCREENSHOT_DEFAULT_NAME "screenshot"
+#define SCREENSHOT_NAME_MAX 32
 #define SCREENSHOT_BYTES_PER_PIXEL 2U
 #define SCREENSHOT_BMP_HEADER_SIZE 54U
 #define SCREENSHOT_BMP_BYTES_PER_PIXEL 3U
@@ -32,6 +32,23 @@ static const display_board_handle_t *s_board;
 static screenshot_status_cb_t s_status_callback;
 static QueueHandle_t s_capture_queue;
 static httpd_handle_t s_http_server;
+
+typedef struct {
+    char name[SCREENSHOT_NAME_MAX];
+} screenshot_request_t;
+
+static bool valid_screenshot_name(const char *name) {
+    if (name == NULL || name[0] == '\0') return false;
+    for (const char *cursor = name; *cursor != '\0'; ++cursor) {
+        if (!((*cursor >= 'a' && *cursor <= 'z') || (*cursor >= 'A' && *cursor <= 'Z') ||
+              (*cursor >= '0' && *cursor <= '9') || *cursor == '-' || *cursor == '_')) return false;
+    }
+    return strlen(name) < SCREENSHOT_NAME_MAX;
+}
+
+static void screenshot_path(char *path, size_t path_size, const char *name, const char *extension) {
+    snprintf(path, path_size, SCREENSHOT_MOUNT_PATH "/%s.%s", name, extension);
+}
 
 static void put_u16_le(uint8_t *dest, uint16_t value) {
     dest[0] = (uint8_t)value;
@@ -45,7 +62,7 @@ static void put_u32_le(uint8_t *dest, uint32_t value) {
     dest[3] = (uint8_t)(value >> 24);
 }
 
-static void publish_status(const char *state, size_t bytes) {
+static void publish_status(const char *state, size_t bytes, const char *name) {
     if (s_status_callback == NULL) {
         return;
     }
@@ -54,25 +71,29 @@ static void publish_status(const char *state, size_t bytes) {
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     esp_netif_ip_info_t ip_info;
     if (netif != NULL && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
-        snprintf(url, sizeof(url), "http://" IPSTR SCREENSHOT_URI, IP2STR(&ip_info.ip));
+        snprintf(url, sizeof(url), "http://" IPSTR SCREENSHOT_URI "?name=%s", IP2STR(&ip_info.ip), name);
     }
 
     char payload[180];
     if (url[0] != '\0' && strcmp(state, "ready") == 0) {
-        snprintf(payload, sizeof(payload), "{\"state\":\"%s\",\"url\":\"%s\",\"bytes\":%u}",
-                 state, url, (unsigned int)bytes);
+        snprintf(payload, sizeof(payload), "{\"state\":\"%s\",\"name\":\"%s\",\"url\":\"%s\",\"bytes\":%u}",
+                 state, name, url, (unsigned int)bytes);
     } else {
-        snprintf(payload, sizeof(payload), "{\"state\":\"%s\"}", state);
+        snprintf(payload, sizeof(payload), "{\"state\":\"%s\",\"name\":\"%s\"}", state, name);
     }
     ESP_ERROR_CHECK_WITHOUT_ABORT(s_status_callback("state/screenshot", payload, true));
 }
 
-static esp_err_t write_bmp(const uint8_t *frame, uint32_t source_stride) {
+static esp_err_t write_bmp(const uint8_t *frame, uint32_t source_stride, const char *name) {
     const uint32_t row_size = BOARD_LCD_WIDTH * SCREENSHOT_BMP_BYTES_PER_PIXEL;
     const uint32_t file_size = SCREENSHOT_BMP_HEADER_SIZE + row_size * BOARD_LCD_HEIGHT;
     uint8_t header[SCREENSHOT_BMP_HEADER_SIZE] = {0};
     uint8_t row[BOARD_LCD_WIDTH * SCREENSHOT_BMP_BYTES_PER_PIXEL];
-    FILE *file = fopen(SCREENSHOT_TEMP_PATH, "wb");
+    char file_path[SCREENSHOT_NAME_MAX + 16];
+    char temp_path[SCREENSHOT_NAME_MAX + 16];
+    screenshot_path(file_path, sizeof(file_path), name, "bmp");
+    screenshot_path(temp_path, sizeof(temp_path), name, "tmp");
+    FILE *file = fopen(temp_path, "wb");
 
     if (file == NULL) {
         return ESP_FAIL;
@@ -91,7 +112,7 @@ static esp_err_t write_bmp(const uint8_t *frame, uint32_t source_stride) {
 
     if (fwrite(header, 1, sizeof(header), file) != sizeof(header)) {
         fclose(file);
-        unlink(SCREENSHOT_TEMP_PATH);
+        unlink(temp_path);
         return ESP_FAIL;
     }
 
@@ -107,19 +128,19 @@ static esp_err_t write_bmp(const uint8_t *frame, uint32_t source_stride) {
         }
         if (fwrite(row, 1, sizeof(row), file) != sizeof(row)) {
             fclose(file);
-            unlink(SCREENSHOT_TEMP_PATH);
+            unlink(temp_path);
             return ESP_FAIL;
         }
     }
 
-    if (fclose(file) != 0 || rename(SCREENSHOT_TEMP_PATH, SCREENSHOT_FILE_PATH) != 0) {
-        unlink(SCREENSHOT_TEMP_PATH);
+    if (fclose(file) != 0 || rename(temp_path, file_path) != 0) {
+        unlink(temp_path);
         return ESP_FAIL;
     }
     return ESP_OK;
 }
 
-static esp_err_t capture_frame(void) {
+static esp_err_t capture_frame(const char *name) {
     const size_t frame_bytes = (size_t)BOARD_LCD_WIDTH * BOARD_LCD_HEIGHT * SCREENSHOT_BYTES_PER_PIXEL;
     uint8_t *frame = heap_caps_malloc(frame_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (frame == NULL) {
@@ -145,7 +166,7 @@ static esp_err_t capture_frame(void) {
     lvgl_port_unlock();
 
     if (result == ESP_OK) {
-        result = write_bmp(frame, BOARD_LCD_WIDTH * SCREENSHOT_BYTES_PER_PIXEL);
+        result = write_bmp(frame, BOARD_LCD_WIDTH * SCREENSHOT_BYTES_PER_PIXEL, name);
     }
     free(frame);
     return result;
@@ -153,27 +174,41 @@ static esp_err_t capture_frame(void) {
 
 static void screenshot_task(void *arg) {
     (void)arg;
-    uint8_t request;
+    screenshot_request_t request;
     while (true) {
         if (xQueueReceive(s_capture_queue, &request, portMAX_DELAY) != pdTRUE) {
             continue;
         }
-        publish_status("capturing", 0);
-        const esp_err_t result = capture_frame();
+        publish_status("capturing", 0, request.name);
+        const esp_err_t result = capture_frame(request.name);
         if (result == ESP_OK) {
             const size_t file_size = SCREENSHOT_BMP_HEADER_SIZE +
                                      (size_t)BOARD_LCD_WIDTH * BOARD_LCD_HEIGHT * SCREENSHOT_BMP_BYTES_PER_PIXEL;
-            ESP_LOGI(TAG, "Screenshot saved to %s", SCREENSHOT_FILE_PATH);
-            publish_status("ready", file_size);
+            ESP_LOGI(TAG, "Screenshot saved as %s", request.name);
+            publish_status("ready", file_size, request.name);
         } else {
             ESP_LOGW(TAG, "Screenshot capture failed: %s", esp_err_to_name(result));
-            publish_status("error", 0);
+            publish_status("error", 0, request.name);
         }
     }
 }
 
 static esp_err_t screenshot_http_get(httpd_req_t *request) {
-    FILE *file = fopen(SCREENSHOT_FILE_PATH, "rb");
+    char name[SCREENSHOT_NAME_MAX] = SCREENSHOT_DEFAULT_NAME;
+    const size_t query_length = httpd_req_get_url_query_len(request);
+    if (query_length > 0 && query_length < 96) {
+        char query[96];
+        if (httpd_req_get_url_query_str(request, query, sizeof(query)) == ESP_OK) {
+            char requested_name[SCREENSHOT_NAME_MAX];
+            if (httpd_query_key_value(query, "name", requested_name, sizeof(requested_name)) == ESP_OK &&
+                valid_screenshot_name(requested_name)) {
+                strlcpy(name, requested_name, sizeof(name));
+            }
+        }
+    }
+    char file_path[SCREENSHOT_NAME_MAX + 16];
+    screenshot_path(file_path, sizeof(file_path), name, "bmp");
+    FILE *file = fopen(file_path, "rb");
     if (file == NULL) {
         httpd_resp_send_err(request, HTTPD_404_NOT_FOUND, "No screenshot captured yet");
         return ESP_FAIL;
@@ -208,7 +243,7 @@ esp_err_t screenshot_init(const display_board_handle_t *board, screenshot_status
     const esp_vfs_spiffs_conf_t spiffs = {
         .base_path = SCREENSHOT_MOUNT_PATH,
         .partition_label = "storage",
-        .max_files = 2,
+        .max_files = 16,
         /* This partition is dedicated to generated screenshots and is blank after flashing. */
         .format_if_mount_failed = true,
     };
@@ -216,7 +251,7 @@ esp_err_t screenshot_init(const display_board_handle_t *board, screenshot_status
 
     s_board = board;
     s_status_callback = status_callback;
-    s_capture_queue = xQueueCreate(1, sizeof(uint8_t));
+    s_capture_queue = xQueueCreate(1, sizeof(screenshot_request_t));
     ESP_RETURN_ON_FALSE(s_capture_queue != NULL, ESP_ERR_NO_MEM, TAG, "Screenshot queue allocation failed");
 
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
@@ -236,9 +271,17 @@ esp_err_t screenshot_init(const display_board_handle_t *board, screenshot_status
 }
 
 esp_err_t screenshot_request(void) {
+    return screenshot_request_named(SCREENSHOT_DEFAULT_NAME);
+}
+
+esp_err_t screenshot_request_named(const char *name) {
     if (s_capture_queue == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    const uint8_t request = 1;
+    if (!valid_screenshot_name(name)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    screenshot_request_t request = {0};
+    strlcpy(request.name, name, sizeof(request.name));
     return xQueueSend(s_capture_queue, &request, 0) == pdPASS ? ESP_OK : ESP_ERR_TIMEOUT;
 }
