@@ -20,7 +20,7 @@
           "finish": "Finish setup"
         }
       },
-      "basic": {"title": "Panel and media player", "data": {"panel_topic": "Panel MQTT topic", "panel_name": "Panel name", "media_entity": "Media player"}},
+      "basic": {"title": "Panel and media player", "data": {"panel_topic": "Panel MQTT topic", "panel_name": "Panel name", "media_entity": "Media player", "media_power_switch": "Media power switch (optional)"}},
       "display": {
         "title": "Display and weather",
         "data": {
@@ -84,7 +84,7 @@
           "finish": "Save changes"
         }
       },
-      "basic": {"title": "Panel and media player", "data": {"panel_topic": "Panel MQTT topic", "panel_name": "Panel name", "media_entity": "Media player"}},
+      "basic": {"title": "Panel and media player", "data": {"panel_topic": "Panel MQTT topic", "panel_name": "Panel name", "media_entity": "Media player", "media_power_switch": "Media power switch (optional)"}},
       "display": {"title": "Display and weather", "data": {"weather_entity": "Weather entity (optional)", "temperature_entity": "Temperature sensor (optional)", "humidity_entity": "Humidity sensor (optional)", "pressure_entity": "Pressure sensor (optional)", "wind_speed_entity": "Wind speed sensor (optional)", "rainfall_entity": "Rainfall sensor (optional)", "irradiance_entity": "Solar irradiance sensor (optional)", "time_format": "Clock format", "dim_after": "Dim display after (seconds)", "screen_off_after": "Turn screen off after dimming (seconds)", "dim_brightness": "Dim brightness (percent)"}},
       "favorites": {"title": "Media favourites", "data": {"favorite1_label": "Favourite 1 label", "favorite1_icon": "Favourite 1 symbol", "favorite1_payload": "Favourite 1 play-media JSON payload", "favorite2_label": "Favourite 2 label", "favorite2_icon": "Favourite 2 symbol", "favorite2_payload": "Favourite 2 play-media JSON payload", "favorite3_label": "Favourite 3 label", "favorite3_icon": "Favourite 3 symbol", "favorite3_payload": "Favourite 3 play-media JSON payload", "favorite4_label": "Favourite 4 label", "favorite4_icon": "Favourite 4 symbol", "favorite4_payload": "Favourite 4 play-media JSON payload", "favorite5_label": "Favourite 5 label", "favorite5_icon": "Favourite 5 symbol", "favorite5_payload": "Favourite 5 play-media JSON payload"}},
       "chips": {"title": "Measurement chips", "data": {"chip_count": "Number of chips"}},

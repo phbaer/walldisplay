@@ -831,6 +831,10 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     style_volume_rocker_button(volume_up_button);
     lv_obj_align(volume_up_button, LV_ALIGN_RIGHT_MID, -4, 0);
     lv_obj_add_event_cb(volume_up_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_up");
+
+    lv_obj_t *power_button = create_media_button(s_media_page, LV_SYMBOL_POWER, 38, 34, "power_off", media_control_event_cb, true);
+    lv_obj_align(power_button, LV_ALIGN_TOP_RIGHT, 0, 42);
+
     lv_obj_t *media_favorites = lv_obj_create(s_media_page);
     lv_obj_remove_style_all(media_favorites);
     lv_obj_set_size(media_favorites, 424, 34);

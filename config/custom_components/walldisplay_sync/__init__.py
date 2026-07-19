@@ -16,6 +16,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_MEDIA_ENTITY,
+    CONF_MEDIA_POWER_SWITCH,
     CONF_PANEL_NAME,
     CONF_PANEL_TOPIC,
     CONF_WEATHER_ENTITY,
@@ -70,6 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     topic = config[CONF_PANEL_TOPIC].rstrip("/")
     panel_name = config.get(CONF_PANEL_NAME, "") or entry.title
     entity_id = config[CONF_MEDIA_ENTITY]
+    power_switch = config.get(CONF_MEDIA_POWER_SWITCH, "")
     weather_entity = config.get(CONF_WEATHER_ENTITY, "")
     temperature_entity = config.get(CONF_TEMPERATURE_ENTITY, "")
     humidity_entity = config.get(CONF_HUMIDITY_ENTITY, "")
@@ -204,6 +206,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.warning("Ignoring invalid WallDisplay volume payload: %r", message.payload)
                 return
             await hass.services.async_call("media_player", "volume_set", {"entity_id": entity_id, "volume_level": volume_level}, blocking=False)
+            return
+        if command == "power_off":
+            power_switch_state = hass.states.get(power_switch) if power_switch else None
+            if power_switch_state is not None and power_switch_state.state not in {"unknown", "unavailable"}:
+                await hass.services.async_call("switch", "turn_off", {"entity_id": power_switch}, blocking=False)
+            else:
+                await hass.services.async_call("media_player", "turn_off", {"entity_id": entity_id}, blocking=False)
             return
         service = {
             "previous": "media_previous_track",

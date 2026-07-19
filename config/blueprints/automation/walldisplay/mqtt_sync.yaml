@@ -70,6 +70,13 @@ blueprint:
       selector:
         entity:
           domain: media_player
+    media_power_switch:
+      name: Media power switch (optional)
+      description: Turn this switch off from the panel power button. When unset, the media player is turned off instead.
+      default: ""
+      selector:
+        entity:
+          domain: switch
     media_favorite1_label:
       name: Media favourite 1 label
       default: ""
@@ -401,6 +408,7 @@ variables:
   rainfall_entity: !input rainfall_entity
   irradiance_entity: !input irradiance_entity
   media_entity: !input media_entity
+  media_power_switch: !input media_power_switch
   media_favorite1_label: !input media_favorite1_label
   media_favorite1_icon: !input media_favorite1_icon
   media_favorite1_payload: !input media_favorite1_payload
@@ -545,6 +553,9 @@ triggers:
   - id: media_next
     trigger: mqtt
     topic: "{{ panel_topic }}/cmd/media/next"
+  - id: media_power_off
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/power_off"
   - id: media_volume_down
     trigger: mqtt
     topic: "{{ panel_topic }}/cmd/media/volume_down"
@@ -1163,6 +1174,14 @@ actions:
       - conditions: "{{ trigger.id == 'media_next' }}"
         sequence:
           - action: media_player.media_next_track
+            target: {entity_id: "{{ media_entity }}"}
+      - conditions: "{{ trigger.id == 'media_power_off' and media_power_switch | length > 0 and states(media_power_switch) not in ['unknown', 'unavailable'] }}"
+        sequence:
+          - action: switch.turn_off
+            target: {entity_id: "{{ media_power_switch }}"}
+      - conditions: "{{ trigger.id == 'media_power_off' and not (media_power_switch | length > 0 and states(media_power_switch) not in ['unknown', 'unavailable']) }}"
+        sequence:
+          - action: media_player.turn_off
             target: {entity_id: "{{ media_entity }}"}
       - conditions: "{{ trigger.id == 'media_volume_down' }}"
         sequence:

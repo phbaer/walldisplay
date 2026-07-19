@@ -14,6 +14,7 @@ from .const import (
     CONF_DIM_AFTER,
     CONF_DIM_BRIGHTNESS,
     CONF_MEDIA_ENTITY,
+    CONF_MEDIA_POWER_SWITCH,
     CONF_PANEL_NAME,
     CONF_PANEL_TOPIC,
     CONF_SCREEN_OFF_AFTER,
@@ -47,6 +48,9 @@ def _basic_schema(defaults: dict[str, object]) -> vol.Schema:
         vol.Optional(CONF_PANEL_NAME, default=defaults.get(CONF_PANEL_NAME, "")): str,
         vol.Required(CONF_MEDIA_ENTITY, default=defaults.get(CONF_MEDIA_ENTITY)): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="media_player")
+        ),
+        vol.Optional(CONF_MEDIA_POWER_SWITCH, default=defaults.get(CONF_MEDIA_POWER_SWITCH, "")): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="switch")
         ),
     })
 
