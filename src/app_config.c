@@ -23,6 +23,7 @@ static const app_config_t s_default_config = {
     .discovery_prefix = APPCFG_DEFAULT_DISCOVERY_PREFIX,
     .base_topic = APPCFG_DEFAULT_BASE_TOPIC,
     .enable_discovery = APPCFG_DEFAULT_ENABLE_DISCOVERY,
+    .default_page = APP_DEFAULT_PAGE_WEATHER,
 };
 static app_config_t s_app_config;
 static bool s_initialized;
@@ -47,38 +48,40 @@ esp_err_t app_config_init(void) {
     esp_err_t ret = nvs_flash_init_partition(APP_CONFIG_PARTITION);
     if (ret == ESP_ERR_NOT_FOUND) {
         ESP_LOGW(TAG, "NVS partition '%s' not found, using built-in defaults", APP_CONFIG_PARTITION);
-        s_initialized = true;
-        return ESP_OK;
+    } else {
+        ESP_RETURN_ON_ERROR(ret, TAG, "Failed to initialize appcfg partition");
+
+        ret = nvs_open_from_partition(APP_CONFIG_PARTITION, APP_CONFIG_NAMESPACE, NVS_READONLY, &nvs_handle);
+        if (ret == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGI(TAG, "NVS namespace '%s' not found in partition '%s', using built-in defaults", APP_CONFIG_NAMESPACE, APP_CONFIG_PARTITION);
+        } else {
+            ESP_RETURN_ON_ERROR(ret, TAG, "Failed to open appcfg namespace");
+
+            load_string_or_default(nvs_handle, "wifi_ssid", s_app_config.wifi_ssid, sizeof(s_app_config.wifi_ssid), s_default_config.wifi_ssid);
+            load_string_or_default(nvs_handle, "wifi_pass", s_app_config.wifi_password, sizeof(s_app_config.wifi_password), s_default_config.wifi_password);
+            load_string_or_default(nvs_handle, "mqtt_uri", s_app_config.mqtt_uri, sizeof(s_app_config.mqtt_uri), s_default_config.mqtt_uri);
+            load_string_or_default(nvs_handle, "mqtt_user", s_app_config.mqtt_username, sizeof(s_app_config.mqtt_username), s_default_config.mqtt_username);
+            load_string_or_default(nvs_handle, "mqtt_pass", s_app_config.mqtt_password, sizeof(s_app_config.mqtt_password), s_default_config.mqtt_password);
+            load_string_or_default(nvs_handle, "disc_pref", s_app_config.discovery_prefix, sizeof(s_app_config.discovery_prefix), s_default_config.discovery_prefix);
+            load_string_or_default(nvs_handle, "base_topic", s_app_config.base_topic, sizeof(s_app_config.base_topic), s_default_config.base_topic);
+
+            uint8_t enable_discovery = s_default_config.enable_discovery;
+            if (nvs_get_u8(nvs_handle, "discovery", &enable_discovery) == ESP_OK) {
+                s_app_config.enable_discovery = enable_discovery != 0;
+            }
+
+            nvs_close(nvs_handle);
+        }
     }
-    ESP_RETURN_ON_ERROR(ret, TAG, "Failed to initialize appcfg partition");
-
-    ret = nvs_open_from_partition(APP_CONFIG_PARTITION, APP_CONFIG_NAMESPACE, NVS_READONLY, &nvs_handle);
-    if (ret == ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGI(TAG, "NVS namespace '%s' not found in partition '%s', using built-in defaults", APP_CONFIG_NAMESPACE, APP_CONFIG_PARTITION);
-        s_initialized = true;
-        return ESP_OK;
-    }
-    ESP_RETURN_ON_ERROR(ret, TAG, "Failed to open appcfg namespace");
-
-    load_string_or_default(nvs_handle, "wifi_ssid", s_app_config.wifi_ssid, sizeof(s_app_config.wifi_ssid), s_default_config.wifi_ssid);
-    load_string_or_default(nvs_handle, "wifi_pass", s_app_config.wifi_password, sizeof(s_app_config.wifi_password), s_default_config.wifi_password);
-    load_string_or_default(nvs_handle, "mqtt_uri", s_app_config.mqtt_uri, sizeof(s_app_config.mqtt_uri), s_default_config.mqtt_uri);
-    load_string_or_default(nvs_handle, "mqtt_user", s_app_config.mqtt_username, sizeof(s_app_config.mqtt_username), s_default_config.mqtt_username);
-    load_string_or_default(nvs_handle, "mqtt_pass", s_app_config.mqtt_password, sizeof(s_app_config.mqtt_password), s_default_config.mqtt_password);
-    load_string_or_default(nvs_handle, "disc_pref", s_app_config.discovery_prefix, sizeof(s_app_config.discovery_prefix), s_default_config.discovery_prefix);
-    load_string_or_default(nvs_handle, "base_topic", s_app_config.base_topic, sizeof(s_app_config.base_topic), s_default_config.base_topic);
-
-    uint8_t enable_discovery = s_default_config.enable_discovery;
-    if (nvs_get_u8(nvs_handle, "discovery", &enable_discovery) == ESP_OK) {
-        s_app_config.enable_discovery = enable_discovery != 0;
-    }
-
-    nvs_close(nvs_handle);
 
     ret = nvs_open(RUNTIME_CONFIG_NAMESPACE, NVS_READONLY, &nvs_handle);
     if (ret == ESP_OK) {
         size_t required_size = sizeof(s_app_config.base_topic);
         nvs_get_str(nvs_handle, "base_topic", s_app_config.base_topic, &required_size);
+        uint8_t default_page;
+        if (nvs_get_u8(nvs_handle, "default_page", &default_page) == ESP_OK && default_page <= APP_DEFAULT_PAGE_MEDIA) {
+            s_app_config.default_page = (app_default_page_t)default_page;
+        }
         nvs_close(nvs_handle);
     } else if (ret != ESP_ERR_NVS_NOT_FOUND) {
         ESP_RETURN_ON_ERROR(ret, TAG, "Failed to open runtime config");
@@ -123,5 +126,38 @@ esp_err_t app_config_set_base_topic(const char *base_topic) {
 
     strlcpy(s_app_config.base_topic, base_topic, sizeof(s_app_config.base_topic));
     ESP_LOGI(TAG, "Base topic updated to '%s'", s_app_config.base_topic);
+    return ESP_OK;
+}
+
+const char *app_config_default_page_name(app_default_page_t page) {
+    return page == APP_DEFAULT_PAGE_MEDIA ? "media" : "weather";
+}
+
+esp_err_t app_config_set_default_page(const char *page_name) {
+    app_default_page_t page;
+    nvs_handle_t nvs_handle;
+
+    ESP_RETURN_ON_FALSE(page_name != NULL, ESP_ERR_INVALID_ARG, TAG, "Default page is null");
+    if (strcasecmp(page_name, "weather") == 0) {
+        page = APP_DEFAULT_PAGE_WEATHER;
+    } else if (strcasecmp(page_name, "media") == 0) {
+        page = APP_DEFAULT_PAGE_MEDIA;
+    } else {
+        ESP_LOGW(TAG, "Invalid default page '%s'", page_name);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_RETURN_ON_ERROR(nvs_open(RUNTIME_CONFIG_NAMESPACE, NVS_READWRITE, &nvs_handle),
+                        TAG,
+                        "Failed to open runtime config for writing");
+    esp_err_t ret = nvs_set_u8(nvs_handle, "default_page", (uint8_t)page);
+    if (ret == ESP_OK) {
+        ret = nvs_commit(nvs_handle);
+    }
+    nvs_close(nvs_handle);
+    ESP_RETURN_ON_ERROR(ret, TAG, "Failed to save default page");
+
+    s_app_config.default_page = page;
+    ESP_LOGI(TAG, "Default page updated to '%s'", app_config_default_page_name(page));
     return ESP_OK;
 }

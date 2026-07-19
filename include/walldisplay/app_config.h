@@ -20,6 +20,11 @@
 #define APP_MQTT_PASSWORD_MAX_LEN 64
 #define APP_TOPIC_MAX_LEN 128
 
+typedef enum {
+    APP_DEFAULT_PAGE_WEATHER,
+    APP_DEFAULT_PAGE_MEDIA,
+} app_default_page_t;
+
 typedef struct {
     char wifi_ssid[APP_WIFI_MAX_SSID_LEN + 1];
     char wifi_password[APP_WIFI_MAX_PASSWORD_LEN + 1];
@@ -29,8 +34,11 @@ typedef struct {
     char discovery_prefix[APP_TOPIC_MAX_LEN + 1];
     char base_topic[APP_TOPIC_MAX_LEN + 1];
     bool enable_discovery;
+    app_default_page_t default_page;
 } app_config_t;
 
 esp_err_t app_config_init(void);
 const app_config_t *app_config_get(void);
 esp_err_t app_config_set_base_topic(const char *base_topic);
+esp_err_t app_config_set_default_page(const char *page_name);
+const char *app_config_default_page_name(app_default_page_t page);

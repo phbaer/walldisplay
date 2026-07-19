@@ -854,7 +854,11 @@ esp_err_t ui_init(const display_board_handle_t *board) {
         lv_obj_add_flag(s_media_favorite_icons[i], LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
     }
-    lv_obj_add_flag(s_media_page, LV_OBJ_FLAG_HIDDEN);
+    if (app_config_get()->default_page == APP_DEFAULT_PAGE_WEATHER) {
+        lv_obj_add_flag(s_media_page, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_weather_page, LV_OBJ_FLAG_HIDDEN);
+    }
 
     s_footer = lv_obj_create(screen);
     style_panel(s_footer, UI_COLOR_SURFACE, 12);
