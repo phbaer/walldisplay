@@ -15,7 +15,7 @@ idf.py build
 idf.py -p <PORT> flash monitor
 ```
 
-`config/panel_config.yaml` provides build-time defaults; provisioned values in the read-only `appcfg` NVS partition take precedence. Give each panel a distinct base topic, such as `panel/guition-4848s040-kitchen`. Changing the discovered **Panel MQTT Topic** entity restarts the panel, so update its matching Home Assistant configuration too.
+`config/panel_config.yaml` provides build-time defaults; provisioned values in the read-only `appcfg` NVS partition take precedence. Give each panel a distinct base topic, such as `panel/guition-4848s040-kitchen`. Changing the discovered **Panel MQTT Topic** entity persists the new topic and restarts the panel; update the matching Home Assistant configuration to publish to the new topic.
 
 ## Home Assistant
 
@@ -40,6 +40,8 @@ The firmware and blueprint release is `0.5.0`; MQTT contract `5`. MQTT Sync publ
 | Display updates | `<base>/set/...` | Matching retained `state/...` inputs also work. |
 | Commands | `<base>/cmd/...` | Buttons, media, sync, configuration, OTA, and screenshots. |
 | Panel state | `<base>/state/...` | Retained canonical values and diagnostics. |
+
+The discovered **Default Panel Widget** select chooses `weather` or `media` as the page shown after startup. Its value is saved in the panel and applied immediately; it is controlled through `<base>/cmd/config/default_page` and reported at `<base>/state/config/default_page`.
 
 Display data uses `set/name`, `set/weather`, `set/media`, `set/clock`, `set/date`, `set/chipN`, `set/chipN/color`, `set/buttonN/label`, and `set/buttonN/state`. The header shows large, unified clock and date labels at the upper left and upper right, respectively, both with 14 px top and outer-side padding; the panel name is smaller and muted below the clock. Select 24-hour (default) or 12-hour time in either synchronization path. Its Wi-Fi, MQTT, and Home Assistant indicators form one three-section rounded status control; only its outer corners are rounded. `set/media` accepts plain text or JSON, for example:
 

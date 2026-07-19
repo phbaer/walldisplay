@@ -104,6 +104,9 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
     snprintf(topic, sizeof(topic), "%s/cmd/config/base_topic", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
+    snprintf(topic, sizeof(topic), "%s/cmd/config/default_page", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+
     snprintf(topic, sizeof(topic), "%s/cmd/wake", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
@@ -163,6 +166,7 @@ static void on_mqtt_connected(esp_mqtt_client_handle_t client, void *user_ctx) {
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/update", "{\"state\":\"idle\",\"version\":\"" APP_FW_VERSION "\"}", true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/contract_version", APP_CONTRACT_VERSION, true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/base_topic", config->base_topic, true));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/default_page", app_config_default_page_name(config->default_page), true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("cmd/sync", "request", false));
     ESP_ERROR_CHECK_WITHOUT_ABORT(device_info_publish());
     ui_set_connection_status("MQTT connected");
@@ -199,6 +203,20 @@ static void on_mqtt_message(const char *topic, const char *payload, void *user_c
         ESP_LOGI(TAG, "Restarting to apply new MQTT topic");
         vTaskDelay(pdMS_TO_TICKS(250));
         esp_restart();
+        return;
+    }
+
+    snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/config/default_page", config->base_topic);
+    if (strcmp(topic, expected_topic) == 0) {
+        const esp_err_t err = app_config_set_default_page(payload);
+        if (err != ESP_OK || ui_show_page(payload) != ESP_OK) {
+            ESP_LOGW(TAG, "Rejected default-page update");
+            ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/error", "Invalid Default Widget", true));
+            return;
+        }
+        ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/default_page",
+                                                            app_config_default_page_name(config->default_page),
+                                                            true));
         return;
     }
 
