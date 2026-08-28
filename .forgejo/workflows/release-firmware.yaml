@@ -27,7 +27,7 @@ jobs:
           apt-get install -y --no-install-recommends nodejs
 
       - name: Check out release source
-        uses: https://data.forgejo.org/actions/checkout@v6
+        uses: https://data.forgejo.org/actions/checkout@v7
         with:
           # A manual dispatch may publish an existing tag; otherwise use the event ref.
           ref: ${{ inputs.release_tag || forgejo.ref }}
