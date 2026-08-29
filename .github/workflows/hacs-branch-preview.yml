@@ -36,7 +36,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release delete "$PREVIEW_TAG" --cleanup-tag --yes || true
       - run: zip -r walldisplay_sync.zip custom_components/walldisplay_sync
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.PREVIEW_TAG }}
           target_commitish: ${{ github.sha }}
