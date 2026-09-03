@@ -19,7 +19,7 @@ jobs:
     # The local runner selects the job; the container provides ESP-IDF and Python.
     runs-on: node
     container:
-      image: espressif/idf:v6.0.2
+      image: espressif/idf:v6.0.3
     steps:
       - name: Install checkout action runtime
         run: |
