@@ -11,3 +11,13 @@ homeassistant:
   discovery_prefix: "homeassistant"
   base_topic: "panel/guition-4848s040"
   enable_discovery: true
+
+# Initial layout; persisted runtime settings and Home Assistant updates take precedence.
+display:
+  page1: weather
+  page2: media
+  page3: none
+  default_page: weather
+  weather_title: Weather
+  media_title: Media
+  buttons_title: Buttons

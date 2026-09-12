@@ -39,6 +39,7 @@ from .const import (
     favorite_label_key,
     favorite_payload_key,
 )
+from .pages import GRID_COUNT, layout_payload, grid_payload
 from .runtime import WallDisplayRuntime
 from .artwork import ArtworkCache, async_register_cache, async_unregister_cache
 
@@ -70,7 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     config = {**entry.data, **entry.options}
     topic = config[CONF_PANEL_TOPIC].rstrip("/")
     panel_name = config.get(CONF_PANEL_NAME, "") or entry.title
-    entity_id = config[CONF_MEDIA_ENTITY]
+    entity_id = config.get(CONF_MEDIA_ENTITY, "")
     power_switch = config.get(CONF_MEDIA_POWER_SWITCH, "")
     weather_entity = config.get(CONF_WEATHER_ENTITY, "")
     temperature_entity = config.get(CONF_TEMPERATURE_ENTITY, "")
@@ -85,7 +86,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(lambda: async_unregister_cache(hass, entry.entry_id))
 
     async def publish_media(_: Event | None = None) -> None:
-        state = hass.states.get(entity_id)
+        state = hass.states.get(entity_id) if entity_id else None
         if state is None:
             return
         attrs = state.attributes
@@ -110,8 +111,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await mqtt.async_publish(hass, f"{topic}/set/media/favorite{slot}/icon", config.get(favorite_icon_key(slot), "radio"), 1, True)
 
     async def publish_panel_configuration() -> None:
+        await mqtt.async_publish(hass, f"{topic}/set/pages", json.dumps(layout_payload(config), ensure_ascii=False), 1, True)
+        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "0.6.0", "contract": "6"}), 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/name", panel_name, 1, True)
-        await mqtt.async_publish(hass, f"{topic}/set/display_power", json.dumps({"dim_after": config.get(CONF_DIM_AFTER, 300), "off_after": config.get(CONF_SCREEN_OFF_AFTER, 600), "dim_percent": config.get(CONF_DIM_BRIGHTNESS, 20)}), 1, True)
+        await mqtt.async_publish(
+            hass,
+            f"{topic}/set/display_power",
+            json.dumps({
+                "dim_after": config.get(CONF_DIM_AFTER, 300),
+                "off_after": config.get(CONF_SCREEN_OFF_AFTER, 600),
+                "dim_percent": config.get(CONF_DIM_BRIGHTNESS, 20),
+            }),
+            1,
+            True,
+        )
 
     async def publish_clock(_: datetime | None = None) -> None:
         now = dt_util.now()
@@ -167,18 +180,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await mqtt.async_publish(hass, f"{topic}/set/weather", json.dumps(payload), 1, True)
 
     async def publish_chip(slot: int) -> None:
-        sensor = config.get(chip_sensor_key(slot), ""); state = hass.states.get(sensor) if sensor else None
-        value = state.state if state else ""; unit = state.attributes.get("unit_of_measurement", "") if state else ""
+        sensor = config.get(chip_sensor_key(slot), "")
+        state = hass.states.get(sensor) if sensor else None
+        value = state.state if state else ""
+        unit = state.attributes.get("unit_of_measurement", "") if state else ""
         try: numeric = float(value)
         except (TypeError, ValueError): numeric = None
-        color = config.get(CONF_CHIP_NEUTRAL_COLOR, "neutral") if numeric is None else (config.get(CONF_CHIP_ALERT_COLOR, "alert") if numeric > config.get(chip_alert_key(slot), 0) else config.get(CONF_CHIP_WARN_COLOR, "warn") if numeric > config.get(chip_warn_key(slot), 0) else config.get(CONF_CHIP_OK_COLOR, "ok"))
+        color = (
+            config.get(CONF_CHIP_NEUTRAL_COLOR, "neutral") if numeric is None
+            else config.get(CONF_CHIP_ALERT_COLOR, "alert") if numeric > config.get(chip_alert_key(slot), 0)
+            else config.get(CONF_CHIP_WARN_COLOR, "warn") if numeric > config.get(chip_warn_key(slot), 0)
+            else config.get(CONF_CHIP_OK_COLOR, "ok")
+        )
         await mqtt.async_publish(hass, f"{topic}/set/chip{slot}", f"{value}{' ' + unit if unit else ''}", 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/chip{slot}/color", color, 1, True)
+
     async def publish_chips(_: Event | None = None) -> None:
         for slot in range(1, CHIP_COUNT + 1): await publish_chip(slot)
+
     async def publish_footers(_: Event | None = None) -> None:
         for slot in range(1, FOOTER_BUTTON_COUNT + 1):
-            state_entity = config.get(footer_state_key(slot), ""); state = hass.states.get(state_entity) if state_entity else None
+            state_entity = config.get(footer_state_key(slot), "")
+            state = hass.states.get(state_entity) if state_entity else None
             await mqtt.async_publish(hass, f"{topic}/set/button{slot}/label", config.get(footer_label_key(slot), ""), 1, True)
             await mqtt.async_publish(hass, f"{topic}/set/button{slot}/state", state.state if state else "stateless", 1, True)
 
@@ -240,13 +263,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if 1 <= slot <= FOOTER_BUTTON_COUNT:
                 state_entity = config.get(footer_state_key(slot), "")
                 if state_entity:
-                    await hass.services.async_call("homeassistant", "toggle", target={"entity_id": state_entity}, blocking=False)
+                    await hass.services.async_call(
+                        "homeassistant",
+                        "toggle",
+                        target={"entity_id": state_entity},
+                        blocking=False,
+                    )
                 else:
                     entry.runtime_data.fire_footer_button(slot)
 
+    async def publish_grid(_: Event | None = None) -> None:
+        for slot in range(1, GRID_COUNT + 1):
+            entity = config.get(f"grid{slot}_state_entity", "")
+            state = hass.states.get(entity) if entity else None
+            value = state.state if state else ("unavailable" if entity else "stateless")
+            await mqtt.async_publish(hass, f"{topic}/set/grid/{slot}", json.dumps(grid_payload(config, slot, value)), 1, True)
+
+    async def handle_grid(message: mqtt.ReceiveMessage) -> None:
+        suffix = message.topic.removeprefix(f"{topic}/cmd/grid")
+        if suffix not in {str(i) for i in range(1, GRID_COUNT + 1)} or message.payload != "press":
+            return
+        slot = int(suffix)
+        if not config.get(f"grid{slot}_label") or "buttons" not in layout_payload(config)["pages"]:
+            return
+        entity = config.get(f"grid{slot}_state_entity", "")
+        if entity:
+            state = hass.states.get(entity)
+            if state and state.state not in {"unknown", "unavailable"}:
+                await hass.services.async_call("homeassistant", "toggle", target={"entity_id": entity}, blocking=False)
+        else:
+            entry.runtime_data.fire_footer_button(FOOTER_BUTTON_COUNT + slot)
+
     async def publish_all() -> None:
-        await publish_media(); await publish_panel_configuration(); await publish_clock(); await publish_favorites()
-        await publish_weather(); await publish_chips(); await publish_footers()
+        await publish_media()
+        await publish_panel_configuration()
+        await publish_clock()
+        await publish_favorites()
+        await publish_weather()
+        await publish_chips()
+        await publish_footers()
+        await publish_grid()
 
     async def panel_status(message: mqtt.ReceiveMessage) -> None:
         if message.payload == "online":
@@ -255,7 +311,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def panel_sync(_: mqtt.ReceiveMessage) -> None:
         await publish_all()
 
-    entry.async_on_unload(async_track_state_change_event(hass, [entity_id], publish_media))
+    if entity_id:
+        entry.async_on_unload(async_track_state_change_event(hass, [entity_id], publish_media))
+    grid_entities = [config.get(f"grid{i}_state_entity", "") for i in range(1, GRID_COUNT + 1)]
+    if any(grid_entities):
+        entry.async_on_unload(async_track_state_change_event(hass, [entity for entity in grid_entities if entity], publish_grid))
+    for slot in range(1, GRID_COUNT + 1):
+        entry.async_on_unload(await mqtt.async_subscribe(hass, f"{topic}/cmd/grid{slot}", handle_grid, 1))
     entry.async_on_unload(async_track_time_interval(hass, publish_clock, timedelta(minutes=1)))
     weather_sources = [entity for entity in [weather_entity, temperature_entity, humidity_entity, pressure_entity, wind_speed_entity, rainfall_entity, irradiance_entity] if entity]
     if weather_sources:

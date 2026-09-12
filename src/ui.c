@@ -56,6 +56,17 @@ static media_widget_t *s_media_widget;
 static lv_obj_t *s_main_area;
 static lv_obj_t *s_weather_page;
 static lv_obj_t *s_media_page;
+static lv_obj_t *s_pages[PANEL_PAGE_COUNT];
+static lv_obj_t *s_page_switches[PANEL_PAGE_COUNT];
+static size_t s_page_switch_count;
+static panel_layout_t s_layout;
+static panel_page_id_t s_current_page;
+static char s_panel_name[128];
+static lv_obj_t *s_weather_title;
+static lv_obj_t *s_buttons_title;
+static lv_obj_t *s_grid_buttons[6];
+static lv_obj_t *s_grid_labels[6];
+static int s_grid_slots[6];
 static lv_obj_t *s_footer;
 static lv_obj_t *s_dynamic_row;
 static lv_obj_t *s_weather_metric_containers[UI_WEATHER_METRICS];
@@ -387,6 +398,7 @@ static void set_weather_icon(lv_obj_t *icon, const char *condition) {
 static void create_page_switch(lv_obj_t *page, const char *symbol) {
     lv_obj_t *button = lv_btn_create(page);
     style_button(button);
+    s_page_switches[s_page_switch_count++] = button;
     lv_obj_set_size(button, 38, 34);
     lv_obj_align(button, LV_ALIGN_TOP_RIGHT, 0, 0);
     lv_obj_add_event_cb(button, page_switch_event_cb, LV_EVENT_CLICKED, NULL);
@@ -487,6 +499,7 @@ static lv_obj_t *create_weather_page(lv_obj_t *parent) {
     lv_obj_clear_flag(page, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(page);
+    s_weather_title = title;
     lv_label_set_text(title, "Weather");
     lv_obj_set_style_text_font(title, font_ui_16(), 0);
     lv_obj_set_style_text_color(title, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
@@ -626,28 +639,108 @@ static const char *media_favorite_symbol(const char *icon_name) {
     return "";
 }
 
-static void page_switch_event_cb(lv_event_t *event) {
-    if (lv_event_get_code(event) != LV_EVENT_CLICKED || s_weather_page == NULL || s_media_page == NULL) {
-        return;
+static void show_page_locked(panel_page_id_t id) {
+    for (size_t i = 0; i < PANEL_PAGE_COUNT; ++i) {
+        if (i == (size_t)id) lv_obj_clear_flag(s_pages[i], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(s_pages[i], LV_OBJ_FLAG_HIDDEN);
     }
+    s_current_page = id;
+    lv_label_set_text_fmt(s_title_label, "%s%s%s", s_panel_name,
+                          s_panel_name[0] ? " · " : "", s_layout.titles[id]);
+}
 
-    lv_obj_t *next = lv_obj_has_flag(s_weather_page, LV_OBJ_FLAG_HIDDEN) ? s_weather_page : s_media_page;
-    lv_obj_t *current = next == s_weather_page ? s_media_page : s_weather_page;
-    lv_obj_add_flag(current, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(next, LV_OBJ_FLAG_HIDDEN);
+static void page_switch_event_cb(lv_event_t *event) {
+    if (lv_event_get_code(event) == LV_EVENT_CLICKED)
+        show_page_locked(panel_layout_next(&s_layout, s_current_page));
 }
 
 esp_err_t ui_show_page(const char *page_name) {
-    if (page_name == NULL || !lvgl_port_lock(0)) return ESP_ERR_INVALID_ARG;
-    lv_obj_t *next = string_equals_ci(page_name, "weather") ? s_weather_page :
-                     string_equals_ci(page_name, "media") ? s_media_page : NULL;
-    if (next == NULL || s_weather_page == NULL || s_media_page == NULL) {
-        lvgl_port_unlock();
-        return ESP_ERR_INVALID_ARG;
-    }
-    lv_obj_add_flag(next == s_weather_page ? s_media_page : s_weather_page, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(next, LV_OBJ_FLAG_HIDDEN);
+    panel_page_id_t id;
+    if (!panel_page_parse(page_name, &id)) return ESP_ERR_INVALID_ARG;
+    if (!lvgl_port_lock(0)) return ESP_ERR_TIMEOUT;
+    if (!panel_layout_contains(&s_layout, id)) { lvgl_port_unlock(); return ESP_ERR_INVALID_ARG; }
+    show_page_locked(id);
     lvgl_port_unlock();
+    return ESP_OK;
+}
+
+static void apply_layout_locked(void) {
+    s_layout = app_config_get()->layout;
+    for (size_t i = 0; i < s_page_switch_count; ++i) {
+        if (s_layout.count == 1) lv_obj_add_flag(s_page_switches[i], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_clear_flag(s_page_switches[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_set_width(s_weather_title, 370);
+    lv_label_set_long_mode(s_weather_title, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(s_buttons_title, 370);
+    lv_label_set_long_mode(s_buttons_title, LV_LABEL_LONG_DOT);
+    lv_label_set_text(s_weather_title, s_layout.titles[PANEL_PAGE_WEATHER]);
+    lv_label_set_text(s_buttons_title, s_layout.titles[PANEL_PAGE_BUTTONS]);
+    show_page_locked(s_layout.default_page);
+}
+
+esp_err_t ui_apply_page_layout(void) {
+    if (!lvgl_port_lock(0)) return ESP_ERR_TIMEOUT;
+    char current[PANEL_LAYOUT_JSON_SIZE], next[PANEL_LAYOUT_JSON_SIZE];
+    if (!panel_layout_json(&s_layout, current, sizeof(current)) ||
+        !panel_layout_json(&app_config_get()->layout, next, sizeof(next)) || strcmp(current, next) != 0)
+        apply_layout_locked();
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+static void grid_button_event_cb(lv_event_t *event) {
+    int slot = *(int *)lv_event_get_user_data(event);
+    char topic[APP_TOPIC_MAX_LEN + 32];
+    snprintf(topic, sizeof(topic), "%s/cmd/grid%d", app_config_get()->base_topic, slot + 1);
+    if (mqtt_app_publish_async(topic, "press", false) != ESP_OK)
+        ESP_LOGW(TAG, "Could not queue grid button press");
+}
+
+static lv_obj_t *create_buttons_page(lv_obj_t *parent) {
+    lv_obj_t *page = create_main_page(parent, "Buttons", LV_SYMBOL_RIGHT, "", NULL);
+    s_buttons_title = lv_obj_get_child(page, 0);
+    lv_obj_clear_flag(page, LV_OBJ_FLAG_SCROLLABLE);
+    for (int i = 0; i < 6; ++i) {
+        s_grid_slots[i] = i;
+        lv_obj_t *button = lv_btn_create(page);
+        style_button(button);
+        lv_obj_set_size(button, 206, 56);
+        lv_obj_set_pos(button, (i % 2) * 216, 40 + (i / 2) * 62);
+        lv_obj_add_event_cb(button, grid_button_event_cb, LV_EVENT_CLICKED, &s_grid_slots[i]);
+        s_grid_buttons[i] = button;
+        s_grid_labels[i] = lv_label_create(button);
+        lv_obj_set_style_text_font(s_grid_labels[i], font_ui_16(), 0);
+        lv_obj_set_style_text_color(s_grid_labels[i], lv_color_hex(UI_COLOR_TEXT), 0);
+        lv_obj_set_width(s_grid_labels[i], 186);
+        lv_label_set_long_mode(s_grid_labels[i], LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_align(s_grid_labels[i], LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_center(s_grid_labels[i]);
+        lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
+    }
+    return page;
+}
+
+esp_err_t ui_set_grid_button(size_t index, const char *json) {
+    if (index >= 6 || !json) return ESP_ERR_INVALID_ARG;
+    cJSON *root = cJSON_Parse(json);
+    cJSON *label = cJSON_GetObjectItemCaseSensitive(root, "label");
+    cJSON *state = cJSON_GetObjectItemCaseSensitive(root, "state");
+    if (!cJSON_IsString(label) || strlen(label->valuestring) > 96 || !cJSON_IsString(state)) {
+        cJSON_Delete(root); return ESP_ERR_INVALID_ARG;
+    }
+    if (!lvgl_port_lock(0)) { cJSON_Delete(root); return ESP_ERR_TIMEOUT; }
+    lv_obj_t *button = s_grid_buttons[index];
+    lv_label_set_text(s_grid_labels[index], label->valuestring);
+    if (label->valuestring[0]) lv_obj_clear_flag(button, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
+    if (strcmp(state->valuestring, "on") == 0) lv_obj_add_state(button, LV_STATE_CHECKED);
+    else lv_obj_clear_state(button, LV_STATE_CHECKED);
+    if (strcmp(state->valuestring, "unavailable") == 0 || strcmp(state->valuestring, "unknown") == 0)
+        lv_obj_add_state(button, LV_STATE_DISABLED);
+    else lv_obj_clear_state(button, LV_STATE_DISABLED);
+    lvgl_port_unlock();
+    cJSON_Delete(root);
     return ESP_OK;
 }
 
@@ -662,8 +755,7 @@ static void update_footer_layout_locked(void) {
     bool footer_hidden = visible_buttons == 0;
     int main_height = footer_hidden ? UI_MAIN_FULL_HEIGHT : UI_MAIN_COMPACT_HEIGHT;
     lv_obj_set_height(s_main_area, main_height);
-    lv_obj_set_height(s_weather_page, main_height);
-    lv_obj_set_height(s_media_page, main_height);
+    for (size_t i = 0; i < PANEL_PAGE_COUNT; ++i) lv_obj_set_height(s_pages[i], main_height);
     lv_obj_set_height(s_footer, UI_FOOTER_COMPACT_HEIGHT);
     if (footer_hidden) {
         lv_obj_add_flag(s_footer, LV_OBJ_FLAG_HIDDEN);
@@ -782,7 +874,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_align(s_main_area, LV_ALIGN_TOP_MID, 0, UI_SCREEN_MARGIN + UI_HEADER_HEIGHT + UI_GAP);
 
     s_weather_page = create_weather_page(s_main_area);
-    s_media_page = create_main_page(s_main_area, "", LV_SYMBOL_LEFT, "", NULL);
+    s_media_page = create_main_page(s_main_area, "", LV_SYMBOL_RIGHT, "", NULL);
     s_media_widget = media_widget_create(s_media_page);
     if (s_media_widget == NULL) {
         lvgl_port_unlock();
@@ -858,11 +950,10 @@ esp_err_t ui_init(const display_board_handle_t *board) {
         lv_obj_add_flag(s_media_favorite_icons[i], LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
     }
-    if (app_config_get()->default_page == APP_DEFAULT_PAGE_WEATHER) {
-        lv_obj_add_flag(s_media_page, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(s_weather_page, LV_OBJ_FLAG_HIDDEN);
-    }
+    s_pages[PANEL_PAGE_WEATHER] = s_weather_page;
+    s_pages[PANEL_PAGE_MEDIA] = s_media_page;
+    s_pages[PANEL_PAGE_BUTTONS] = create_buttons_page(s_main_area);
+    apply_layout_locked();
 
     s_footer = lv_obj_create(screen);
     style_panel(s_footer, UI_COLOR_SURFACE, 12);
@@ -917,7 +1008,12 @@ esp_err_t ui_set_connection_status(const char *status_text) {
 }
 
 esp_err_t ui_set_title_text(const char *title_text) {
-    return set_label_text(s_title_label, title_text);
+    if (!title_text) return ESP_ERR_INVALID_ARG;
+    if (!lvgl_port_lock(0)) return ESP_ERR_TIMEOUT;
+    strlcpy(s_panel_name, title_text, sizeof(s_panel_name));
+    show_page_locked(s_current_page);
+    lvgl_port_unlock();
+    return ESP_OK;
 }
 
 esp_err_t ui_set_weather_text(const char *weather_text) {

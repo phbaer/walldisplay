@@ -55,15 +55,15 @@ jobs:
           echo "version=$VERSION" >> "$FORGEJO_OUTPUT"
           echo "sha=$RELEASE_SHA" >> "$FORGEJO_OUTPUT"
 
-      - name: Run unit tests
-        run: sh tests/run_unit_tests.sh
-
       - name: Build ESP32-S3 firmware
         run: |
           test -f config/panel_config.yaml || cp config/panel_config.example.yaml config/panel_config.yaml
           . /opt/esp/idf/export.sh
           idf.py set-target esp32s3
           idf.py build
+
+      - name: Run unit tests
+        run: sh tests/run_unit_tests.sh
 
       - name: Create firmware package and OTA manifest
         run: |
