@@ -8,12 +8,12 @@ description: Maintain this repository’s documentation, release versions for fi
 Apply this workflow to every change.
 
 1. Read `AGENTS.md` and the relevant README sections before editing.
-2. If the change affects firmware or the Home Assistant blueprint, classify it with semantic versioning:
+2. If the change affects firmware or the Home Assistant blueprint, first inspect the feature branch base revision and select the one release version for the entire feature. Classify that release with semantic versioning:
    - major for incompatible behavior or migrations;
    - minor for backward-compatible capabilities or architectural features;
    - patch for fixes, refactors, documentation, and maintenance.
-3. Only for a firmware or Home Assistant blueprint change, bump `APP_FW_VERSION` in `include/walldisplay/app_config.h` and the blueprint release version in `config/blueprints/automation/walldisplay/mqtt_sync.yaml`. Do not bump either version for workflow-only, documentation-only, or other repository maintenance changes.
-4. When an MQTT topic, payload, discovery entity, or semantic behavior changes, also increment the MQTT contract version in both files. Update contract compatibility documentation and discovery diagnostics.
+3. Only for a firmware or Home Assistant blueprint change, change `APP_FW_VERSION` in `include/walldisplay/app_config.h` and the blueprint release version in `config/blueprints/automation/walldisplay/mqtt_sync.yaml` once from the feature base. Every follow-up commit in the feature retains those exact selected values. Do not change either version for workflow-only, documentation-only, or other repository maintenance changes.
+4. When the selected feature changes an MQTT topic, payload, discovery entity, or semantic behavior, choose one MQTT contract version and change it in both files once from the feature base. Keep it unchanged for the rest of the feature. Update contract compatibility documentation and discovery diagnostics.
 5. Update `README.md` in the same change. Describe the current behavior, interfaces, configuration, and operational consequences; remove obsolete descriptions.
 6. Validate proportionately:
    - firmware: `idf.py build`;

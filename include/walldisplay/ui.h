@@ -17,6 +17,7 @@ esp_err_t ui_set_media_text(const char *media_text);
 esp_err_t ui_set_media_favorite_label(size_t index, const char *label_text);
 esp_err_t ui_set_media_favorite_icon(size_t index, const char *icon_name);
 esp_err_t ui_set_media_artwork(const uint16_t *pixels, size_t width, size_t height);
+esp_err_t ui_show_page(const char *page_name);
 esp_err_t ui_set_clock_text(const char *clock_text);
 esp_err_t ui_set_date_text(const char *date_text);
 esp_err_t ui_set_wifi_state(const char *state_text);

@@ -134,6 +134,44 @@ static esp_err_t publish_device_diagnostic(esp_mqtt_client_handle_t client,
     return message_id < 0 ? ESP_FAIL : ESP_OK;
 }
 
+static esp_err_t publish_default_page_discovery(esp_mqtt_client_handle_t client) {
+    const app_config_t *config = app_config_get();
+    char object_id[APP_TOPIC_MAX_LEN + 32];
+    char topic[(APP_TOPIC_MAX_LEN * 2) + 64];
+    char command_topic[APP_TOPIC_MAX_LEN + 32];
+    char state_topic[APP_TOPIC_MAX_LEN + 32];
+    char availability_topic[APP_TOPIC_MAX_LEN + 16];
+    make_unique_id(object_id, sizeof(object_id), "default_page");
+    snprintf(topic, sizeof(topic), "%s/select/%s/config", config->discovery_prefix, object_id);
+    snprintf(command_topic, sizeof(command_topic), "%s/cmd/config/default_page", config->base_topic);
+    snprintf(state_topic, sizeof(state_topic), "%s/state/config/default_page", config->base_topic);
+    snprintf(availability_topic, sizeof(availability_topic), "%s/status", config->base_topic);
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON *device = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "name", "Default Panel Widget");
+    cJSON_AddStringToObject(root, "uniq_id", object_id);
+    cJSON_AddStringToObject(root, "cmd_t", command_topic);
+    cJSON_AddStringToObject(root, "stat_t", state_topic);
+    cJSON_AddStringToObject(root, "avty_t", availability_topic);
+    cJSON_AddItemToObject(root, "ops", cJSON_CreateStringArray((const char *[]) { "weather", "media" }, 2));
+    cJSON_AddItemToObject(root, "dev", device);
+    cJSON_AddStringToObject(device, "name", APP_DEVICE_NAME);
+    cJSON_AddStringToObject(device, "mdl", APP_DEVICE_MODEL);
+    cJSON_AddStringToObject(device, "mf", APP_MANUFACTURER);
+    cJSON_AddStringToObject(device, "sw", APP_FW_VERSION);
+    char device_id[APP_TOPIC_MAX_LEN + 16];
+    make_unique_id(device_id, sizeof(device_id), "device");
+    cJSON_AddItemToObject(device, "ids", cJSON_CreateStringArray((const char *[]) { device_id }, 1));
+
+    char *payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (payload == NULL) return ESP_ERR_NO_MEM;
+    const int message_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, true);
+    cJSON_free(payload);
+    return message_id < 0 ? ESP_FAIL : ESP_OK;
+}
+
 esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
     if (client == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -171,6 +209,7 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
     ESP_ERROR_CHECK(publish_discovery(client, "button", "wake", "Wake Panel", "cmd/wake", NULL));
     ESP_ERROR_CHECK(publish_discovery(client, "button", "screenshot", "Capture Screenshot", "cmd/screenshot", NULL));
     ESP_ERROR_CHECK(publish_discovery(client, "text", "base_topic", "Panel MQTT Topic", "cmd/config/base_topic", "state/config/base_topic"));
+    ESP_ERROR_CHECK(publish_default_page_discovery(client));
     ESP_ERROR_CHECK(publish_discovery(client, "text", "update_manifest", "Panel Update Manifest URL", "cmd/update", NULL));
 
     for (int i = 1; i <= 5; ++i) {

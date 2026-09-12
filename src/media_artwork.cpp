@@ -14,7 +14,7 @@
 
 namespace {
 
-constexpr size_t kArtworkSize = 112;
+constexpr size_t kArtworkSize = 136;
 constexpr size_t kArtworkUrlMax = 384;
 constexpr size_t kMaxDownload = 1024 * 1024;
 constexpr size_t kWorkSize = 8192;
