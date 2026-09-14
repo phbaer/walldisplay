@@ -83,12 +83,12 @@ static esp_err_t publish_discovery(esp_mqtt_client_handle_t client,
         return ESP_ERR_NO_MEM;
     }
 
-    esp_mqtt_client_publish(client, topic, payload, 0, 1, true);
+    const int message_id = esp_mqtt_client_publish(client, topic, payload, 0, 0, true);
     ESP_LOGI(TAG, "Published discovery: %s", topic);
 
     cJSON_free(payload);
     cJSON_Delete(root);
-    return ESP_OK;
+    return message_id < 0 ? ESP_FAIL : ESP_OK;
 }
 
 static esp_err_t publish_device_diagnostic(esp_mqtt_client_handle_t client,
@@ -141,7 +141,7 @@ static esp_err_t publish_device_diagnostic(esp_mqtt_client_handle_t client,
     if (payload == NULL) {
         return ESP_ERR_NO_MEM;
     }
-    const int message_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, true);
+    const int message_id = esp_mqtt_client_publish(client, topic, payload, 0, 0, true);
     cJSON_free(payload);
     return message_id < 0 ? ESP_FAIL : ESP_OK;
 }
@@ -181,7 +181,7 @@ esp_err_t ha_discovery_publish_page_options(esp_mqtt_client_handle_t client) {
     char *payload = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     if (payload == NULL) return ESP_ERR_NO_MEM;
-    const int message_id = esp_mqtt_client_publish(client, topic, payload, 0, 1, true);
+    const int message_id = esp_mqtt_client_publish(client, topic, payload, 0, 0, true);
     cJSON_free(payload);
     return message_id < 0 ? ESP_FAIL : ESP_OK;
 }

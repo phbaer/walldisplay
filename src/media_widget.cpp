@@ -15,6 +15,7 @@ constexpr uint32_t kControlColor = 0x1A1F26;
 constexpr uint32_t kBorderColor = 0x252B33;
 constexpr uint32_t kTextColor = 0xF2F2F2;
 constexpr uint32_t kMutedTextColor = 0xA4ACB8;
+constexpr int kMediaFieldMax = 96;
 
 void normalize_text(char *text) {
     char *read = text;
@@ -98,14 +99,13 @@ public:
         const cJSON *source = cJSON_GetObjectItemCaseSensitive(root, "source");
         const cJSON *state = cJSON_GetObjectItemCaseSensitive(root, "state");
         char text[384];
-        std::snprintf(text, sizeof(text), "%s%s%s%s%s%s%s%s%s",
-                      cJSON_IsString(title) ? title->valuestring : "Media idle",
-                      cJSON_IsString(artist) ? "\n" : "", cJSON_IsString(artist) ? artist->valuestring : "",
-                      cJSON_IsString(album) && album->valuestring[0] ? "\n" : "",
-                      cJSON_IsString(album) ? album->valuestring : "",
-                      cJSON_IsString(source) && source->valuestring[0] ? "\n" : "",
-                      cJSON_IsString(source) ? source->valuestring : "",
-                      cJSON_IsString(state) ? "\n" : "", cJSON_IsString(state) ? state->valuestring : "");
+        std::snprintf(text, sizeof(text), "%.*s%s%.*s%s%.*s%s%.*s%s%.*s",
+                      kMediaFieldMax, cJSON_IsString(title) ? title->valuestring : "Media idle",
+                      cJSON_IsString(artist) ? "\n" : "", kMediaFieldMax, cJSON_IsString(artist) ? artist->valuestring : "",
+                      cJSON_IsString(album) && album->valuestring[0] ? "\n" : "", kMediaFieldMax,
+                      cJSON_IsString(album) ? album->valuestring : "", cJSON_IsString(source) && source->valuestring[0] ? "\n" : "",
+                      kMediaFieldMax, cJSON_IsString(source) ? source->valuestring : "", cJSON_IsString(state) ? "\n" : "",
+                      kMediaFieldMax, cJSON_IsString(state) ? state->valuestring : "");
         normalize_text(text);
         const bool playing = cJSON_IsString(state) && std::strcmp(state->valuestring, "playing") == 0;
         cJSON_Delete(root);

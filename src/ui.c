@@ -881,7 +881,9 @@ esp_err_t ui_init(const display_board_handle_t *board) {
 
     lv_obj_t *update_title = lv_label_create(s_update_screen);
     lv_label_set_text(update_title, "Firmware update");
-    lv_obj_set_style_text_font(update_title, font_ui_24(), 0);
+    /* The temperature font intentionally contains only digits and a degree
+     * sign. Using it for this text renders unsupported letters as boxes. */
+    lv_obj_set_style_text_font(update_title, font_ui_16(), 0);
     lv_obj_set_style_text_color(update_title, lv_color_hex(UI_COLOR_TEXT), 0);
     lv_obj_align(update_title, LV_ALIGN_CENTER, 0, -20);
 

@@ -183,7 +183,8 @@ static void on_mqtt_connected(esp_mqtt_client_handle_t client, void *user_ctx) {
     if (panel_layout_json(&config->layout, layout_json, sizeof(layout_json)))
         ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/pages", layout_json, true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("cmd/sync", "request", false));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(device_info_publish());
+    /* Discovery can queue many retained messages. Publish diagnostics from
+     * the periodic device-info timer after the MQTT outbox has drained. */
     ui_set_connection_status("MQTT connected");
     ui_set_mqtt_state("MQTT ok");
 }

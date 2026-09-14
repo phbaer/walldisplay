@@ -17,9 +17,11 @@
 namespace {
 
 constexpr size_t kArtworkSize = 136;
+constexpr size_t kArtworkBytes = kArtworkSize * kArtworkSize * sizeof(uint16_t);
 constexpr size_t kArtworkUrlMax = 384;
 constexpr size_t kMaxDownload = 1024 * 1024;
 constexpr size_t kWorkSize = 8192;
+constexpr size_t kArtworkTaskStackBytes = 12288;
 constexpr const char *kTag = "media_art";
 
 struct ArtworkRequest {
@@ -40,11 +42,15 @@ class ArtworkService {
 public:
     esp_err_t init() {
         for (auto &pixels : pixels_) {
-            pixels = static_cast<uint16_t *>(heap_caps_malloc(kArtworkSize * kArtworkSize * sizeof(*pixels), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            /* Keep artwork in PSRAM; internal DMA-capable RAM is reserved for
+             * the RGB driver's bounce buffers and LVGL's control structures. */
+            pixels = static_cast<uint16_t *>(heap_caps_malloc(kArtworkBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         }
         mutex_ = xSemaphoreCreateMutex();
         queue_ = xQueueCreate(1, sizeof(ArtworkRequest));
-        if (pixels_[0] == nullptr || pixels_[1] == nullptr || queue_ == nullptr || mutex_ == nullptr || xTaskCreate(task_entry, "artwork", 6144, this, 4, nullptr) != pdPASS) return ESP_ERR_NO_MEM;
+        if (pixels_[0] == nullptr || pixels_[1] == nullptr || queue_ == nullptr || mutex_ == nullptr ||
+            xTaskCreateWithCaps(task_entry, "artwork", kArtworkTaskStackBytes, this, 4, nullptr,
+                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) return ESP_ERR_NO_MEM;
         return ESP_OK;
     }
 
@@ -86,7 +92,7 @@ private:
     };
     static void task_entry(void *argument) {
         static_cast<ArtworkService *>(argument)->run();
-        vTaskDelete(nullptr);
+        vTaskDeleteWithCaps(nullptr);
     }
 
     static UINT jpeg_input(JDEC *decoder, BYTE *buffer, UINT count) {
@@ -180,7 +186,7 @@ private:
             while (scale < 3 && ((decoder.width >> scale) > kArtworkSize * 2 || (decoder.height >> scale) > kArtworkSize * 2)) ++scale;
             context.width = decoder.width >> scale;
             context.height = decoder.height >> scale;
-            std::memset(context.pixels, 0, kArtworkSize * kArtworkSize * sizeof(*context.pixels));
+            std::memset(context.pixels, 0, kArtworkBytes);
             if (jd_decomp(&decoder, jpeg_output, scale) == JDR_OK) {
                 ESP_LOGI(kTag, "Artwork rendered (%ux%u, %u bytes)", decoder.width, decoder.height, static_cast<unsigned>(total));
                 xSemaphoreTake(mutex_, portMAX_DELAY);

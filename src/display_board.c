@@ -2,6 +2,7 @@
 
 #include "esp_check.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_io_additions.h"
 #include "esp_lcd_panel_rgb.h"
@@ -30,6 +31,7 @@ static const char *TAG = "display_board";
 #define BOARD_LCD_BITS_PER_PIXEL 16
 #define BOARD_LCD_BOUNCE_BUFFER_HEIGHT 40
 #define BOARD_LCD_OTA_PIXEL_CLOCK_HZ (6 * 1000 * 1000)
+#define BOARD_LVGL_TASK_STACK_BYTES 16384
 #define BOARD_BACKLIGHT_LEDC_TIMER LEDC_TIMER_0
 #define BOARD_BACKLIGHT_LEDC_CHANNEL LEDC_CHANNEL_0
 #define BOARD_BACKLIGHT_LEDC_DUTY_RES LEDC_TIMER_10_BIT
@@ -139,7 +141,12 @@ static esp_err_t init_lvgl_port(void) {
         return ESP_OK;
     }
 
-    const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    /* Media rendering has a deeper LVGL call path than the weather page.
+     * Keep this stack in PSRAM so the display driver's internal DMA buffers
+     * retain their headroom while page changes remain safe. */
+    lvgl_cfg.task_stack = BOARD_LVGL_TASK_STACK_BYTES;
+    lvgl_cfg.task_stack_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     ESP_RETURN_ON_ERROR(lvgl_port_init(&lvgl_cfg), TAG, "LVGL port init failed");
     s_lvgl_port_initialized = true;
     return ESP_OK;

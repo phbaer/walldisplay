@@ -62,8 +62,12 @@ esp_err_t wifi_manager_start(void) {
     ESP_RETURN_ON_ERROR(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL), TAG, "ip event register failed");
 
     wifi_config_t wifi_config = {0};
-    strncpy((char *) wifi_config.sta.ssid, config->wifi_ssid, sizeof(wifi_config.sta.ssid) - 1);
-    strncpy((char *) wifi_config.sta.password, config->wifi_password, sizeof(wifi_config.sta.password) - 1);
+    /* Copy bounded, NUL-terminated configuration strings without triggering
+     * truncation warnings when the compiler uses -Werror. */
+    const size_t ssid_len = strnlen(config->wifi_ssid, sizeof(wifi_config.sta.ssid) - 1);
+    const size_t password_len = strnlen(config->wifi_password, sizeof(wifi_config.sta.password) - 1);
+    memcpy(wifi_config.sta.ssid, config->wifi_ssid, ssid_len);
+    memcpy(wifi_config.sta.password, config->wifi_password, password_len);
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wifi_config.sta.pmf_cfg.capable = true;
     wifi_config.sta.pmf_cfg.required = false;
