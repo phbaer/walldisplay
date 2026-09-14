@@ -1,5 +1,7 @@
 #include "walldisplay/media_artwork.h"
 #include "walldisplay/ui.h"
+#include "walldisplay/artwork_policy.hpp"
+#include "freertos/semphr.h"
 
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
@@ -15,13 +17,16 @@
 namespace {
 
 constexpr size_t kArtworkSize = 136;
+constexpr size_t kArtworkBytes = kArtworkSize * kArtworkSize * sizeof(uint16_t);
 constexpr size_t kArtworkUrlMax = 384;
 constexpr size_t kMaxDownload = 1024 * 1024;
 constexpr size_t kWorkSize = 8192;
+constexpr size_t kArtworkTaskStackBytes = 12288;
 constexpr const char *kTag = "media_art";
 
 struct ArtworkRequest {
     char url[kArtworkUrlMax];
+    uint32_t generation;
 };
 
 struct DecodeContext {
@@ -37,29 +42,57 @@ class ArtworkService {
 public:
     esp_err_t init() {
         for (auto &pixels : pixels_) {
-            pixels = static_cast<uint16_t *>(heap_caps_malloc(kArtworkSize * kArtworkSize * sizeof(*pixels), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            /* Keep artwork in PSRAM; internal DMA-capable RAM is reserved for
+             * the RGB driver's bounce buffers and LVGL's control structures. */
+            pixels = static_cast<uint16_t *>(heap_caps_malloc(kArtworkBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         }
+        mutex_ = xSemaphoreCreateMutex();
         queue_ = xQueueCreate(1, sizeof(ArtworkRequest));
-        if (pixels_[0] == nullptr || pixels_[1] == nullptr || queue_ == nullptr || xTaskCreate(task_entry, "artwork", 6144, this, 4, nullptr) != pdPASS) return ESP_ERR_NO_MEM;
+        if (pixels_[0] == nullptr || pixels_[1] == nullptr || queue_ == nullptr || mutex_ == nullptr ||
+            xTaskCreateWithCaps(task_entry, "artwork", kArtworkTaskStackBytes, this, 4, nullptr,
+                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) return ESP_ERR_NO_MEM;
         return ESP_OK;
     }
 
     esp_err_t request(const char *url) {
-        if (url == nullptr || url[0] == '\0') {
-            last_url_[0] = '\0';
-            return ui_set_media_artwork(nullptr, 0, 0);
+        if (url == nullptr) url = "";
+        if (std::strlen(url) >= kArtworkUrlMax) return ESP_ERR_INVALID_SIZE;
+        xSemaphoreTake(mutex_, portMAX_DELAY);
+        if (!policy_.request(url)) { xSemaphoreGive(mutex_); return ESP_OK; }
+        esp_err_t result;
+        if (!url[0]) result = ui_set_media_artwork(nullptr, 0, 0);
+        else {
+            ArtworkRequest request{};
+            std::strcpy(request.url, url);
+            request.generation = policy_.generation;
+            result = xQueueOverwrite(queue_, &request) == pdPASS ? ESP_OK : ESP_ERR_TIMEOUT;
+            if (result != ESP_OK) policy_.finish(request.generation, false);
         }
-        if (std::strcmp(last_url_, url) == 0) return ESP_OK;
-        ArtworkRequest request{};
-        strlcpy(request.url, url, sizeof(request.url));
-        strlcpy(last_url_, request.url, sizeof(last_url_));
-        return xQueueOverwrite(queue_, &request) == pdPASS ? ESP_OK : ESP_ERR_TIMEOUT;
+        xSemaphoreGive(mutex_);
+        return result;
     }
 
 private:
+    bool is_current(uint32_t generation) {
+        xSemaphoreTake(mutex_, portMAX_DELAY);
+        const bool current = generation == policy_.generation;
+        xSemaphoreGive(mutex_);
+        return current;
+    }
+
+    struct Completion {
+        ArtworkService &owner;
+        uint32_t generation;
+        bool success = false;
+        ~Completion() {
+            xSemaphoreTake(owner.mutex_, portMAX_DELAY);
+            owner.policy_.finish(generation, success);
+            xSemaphoreGive(owner.mutex_);
+        }
+    };
     static void task_entry(void *argument) {
         static_cast<ArtworkService *>(argument)->run();
-        vTaskDelete(nullptr);
+        vTaskDeleteWithCaps(nullptr);
     }
 
     static UINT jpeg_input(JDEC *decoder, BYTE *buffer, UINT count) {
@@ -100,6 +133,11 @@ private:
         auto *work = static_cast<uint8_t *>(heap_caps_malloc(kWorkSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
         ArtworkRequest request{};
         while (xQueueReceive(queue_, &request, portMAX_DELAY) == pdTRUE) {
+            Completion completion{*this, request.generation};
+            xSemaphoreTake(mutex_, portMAX_DELAY);
+            bool current = request.generation == policy_.generation;
+            xSemaphoreGive(mutex_);
+            if (!current) continue;
             const bool is_https = std::strncmp(request.url, "https://", 8) == 0;
             if ((!is_https && std::strncmp(request.url, "http://", 7) != 0) || download == nullptr || work == nullptr) {
                 ESP_LOGW(kTag, "Artwork URL must use HTTP(S), and PSRAM must be available");
@@ -114,7 +152,7 @@ private:
             const esp_err_t open_result = client == nullptr ? ESP_ERR_NO_MEM : esp_http_client_open(client, 0);
             const int content_length = open_result == ESP_OK ? esp_http_client_fetch_headers(client) : -1;
             const int status_code = client == nullptr ? 0 : esp_http_client_get_status_code(client);
-            if (client == nullptr || open_result != ESP_OK || status_code != 200) {
+            if (client == nullptr || open_result != ESP_OK || status_code != 200 || content_length > static_cast<int>(kMaxDownload)) {
                 ESP_LOGW(kTag, "Artwork download failed (open=%s, status=%d, length=%d)", esp_err_to_name(open_result), status_code, content_length);
                 if (client != nullptr) esp_http_client_cleanup(client);
                 continue;
@@ -122,8 +160,14 @@ private:
 
             size_t total = 0;
             int received = 0;
-            while (total < kMaxDownload && (received = esp_http_client_read(client, reinterpret_cast<char *>(download + total), kMaxDownload - total)) > 0) total += static_cast<size_t>(received);
+            while (total < kMaxDownload && is_current(request.generation) &&
+                   (received = esp_http_client_read(client, reinterpret_cast<char *>(download + total), kMaxDownload - total)) > 0) {
+                total += static_cast<size_t>(received);
+            }
+            const bool cancelled = !is_current(request.generation);
+            bool complete = !cancelled && esp_http_client_is_complete_data_received(client);
             esp_http_client_cleanup(client);
+            if (cancelled || !complete || received < 0 || total == 0) continue;
 
             DecodeContext context{};
             context.data = download;
@@ -137,15 +181,20 @@ private:
                          total > 2 ? download[2] : 0, total > 3 ? download[3] : 0);
                 continue;
             }
+            if (!decoder.width || !decoder.height || static_cast<uint64_t>(decoder.width) * decoder.height > 4096ULL * 4096ULL) continue;
             BYTE scale = 0;
             while (scale < 3 && ((decoder.width >> scale) > kArtworkSize * 2 || (decoder.height >> scale) > kArtworkSize * 2)) ++scale;
             context.width = decoder.width >> scale;
             context.height = decoder.height >> scale;
-            std::memset(context.pixels, 0, kArtworkSize * kArtworkSize * sizeof(*context.pixels));
+            std::memset(context.pixels, 0, kArtworkBytes);
             if (jd_decomp(&decoder, jpeg_output, scale) == JDR_OK) {
                 ESP_LOGI(kTag, "Artwork rendered (%ux%u, %u bytes)", decoder.width, decoder.height, static_cast<unsigned>(total));
-                if (ui_set_media_artwork(context.pixels, kArtworkSize, kArtworkSize) == ESP_OK) active_buffer_ = decode_buffer;
-                else ESP_LOGW(kTag, "Artwork display update failed");
+                xSemaphoreTake(mutex_, portMAX_DELAY);
+                if (request.generation == policy_.generation && ui_set_media_artwork(context.pixels, kArtworkSize, kArtworkSize) == ESP_OK) {
+                    active_buffer_ = decode_buffer;
+                    completion.success = true;
+                }
+                xSemaphoreGive(mutex_);
             }
             else ESP_LOGW(kTag, "Artwork JPEG decode failed");
         }
@@ -154,7 +203,8 @@ private:
     QueueHandle_t queue_ = nullptr;
     uint16_t *pixels_[2]{};
     size_t active_buffer_ = 0;
-    char last_url_[kArtworkUrlMax]{};
+    SemaphoreHandle_t mutex_ = nullptr;
+    ArtworkPolicy policy_;
 };
 
 ArtworkService s_artwork_service;
@@ -167,4 +217,8 @@ extern "C" esp_err_t media_artwork_init(void) {
 
 extern "C" esp_err_t media_artwork_request(const char *url) {
     return s_artwork_service.request(url);
+}
+
+extern "C" esp_err_t media_artwork_cancel(void) {
+    return s_artwork_service.request("");
 }

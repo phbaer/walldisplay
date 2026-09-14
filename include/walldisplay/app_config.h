@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include "page_manager.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -9,9 +10,14 @@
 #define APP_DEVICE_NAME "Guition Wall Panel"
 #define APP_DEVICE_MODEL "ESP32-4848S040"
 #define APP_MANUFACTURER "Guition"
-#define APP_FW_VERSION "0.5.0"
+/* Generated from pyproject.toml by tools/sync_project_version.py.
+ * Tagged release builds may override this at compile time with their exact
+ * release tag, while the checked-in development version remains canonical. */
+#ifndef APP_FW_VERSION
+#define APP_FW_VERSION "1.0.0"
+#endif
 /* Increment whenever MQTT topics, payloads, or semantics change. */
-#define APP_CONTRACT_VERSION "5"
+#define APP_CONTRACT_VERSION "9"
 
 #define APP_WIFI_MAX_SSID_LEN 32
 #define APP_WIFI_MAX_PASSWORD_LEN 64
@@ -23,6 +29,8 @@
 typedef enum {
     APP_DEFAULT_PAGE_WEATHER,
     APP_DEFAULT_PAGE_MEDIA,
+    APP_DEFAULT_PAGE_BUTTONS,
+    APP_DEFAULT_PAGE_ABOUT,
 } app_default_page_t;
 
 typedef struct {
@@ -34,7 +42,11 @@ typedef struct {
     char discovery_prefix[APP_TOPIC_MAX_LEN + 1];
     char base_topic[APP_TOPIC_MAX_LEN + 1];
     bool enable_discovery;
+    bool mqtt_require_tls;
+    const char *mqtt_ca_certificate;
+    const char *screenshot_token;
     app_default_page_t default_page;
+    panel_layout_t layout;
 } app_config_t;
 
 esp_err_t app_config_init(void);
@@ -42,3 +54,5 @@ const app_config_t *app_config_get(void);
 esp_err_t app_config_set_base_topic(const char *base_topic);
 esp_err_t app_config_set_default_page(const char *page_name);
 const char *app_config_default_page_name(app_default_page_t page);
+
+esp_err_t app_config_set_pages(const char *json);

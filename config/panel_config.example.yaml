@@ -3,7 +3,10 @@ wifi:
   password: "YOUR_WIFI_PASSWORD"
 
 mqtt:
-  uri: "mqtt://homeassistant.local:1883"
+  require_tls: true
+  # Optional PEM filename in config/; empty uses public CA bundle.
+  ca_certificate_file: ""
+  uri: "mqtts://homeassistant.local:8883"
   username: "mqtt-user"
   password: "mqtt-password"
 
@@ -11,3 +14,20 @@ homeassistant:
   discovery_prefix: "homeassistant"
   base_topic: "panel/guition-4848s040"
   enable_discovery: true
+
+# Initial layout; persisted runtime settings and Home Assistant updates take precedence.
+display:
+  page1: weather
+  page2: media
+  page3: none
+  page4: none
+  page5: none
+  default_page: weather
+  weather_title: Weather
+  media_title: Media
+  buttons_title: Buttons
+  about_title: About
+
+security:
+  # Generate a distinct token per panel; empty disables the screenshot server.
+  screenshot_token: ""

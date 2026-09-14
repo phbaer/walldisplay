@@ -23,6 +23,9 @@ static const app_config_t s_default_config = {
     .discovery_prefix = APPCFG_DEFAULT_DISCOVERY_PREFIX,
     .base_topic = APPCFG_DEFAULT_BASE_TOPIC,
     .enable_discovery = APPCFG_DEFAULT_ENABLE_DISCOVERY,
+    .mqtt_require_tls = APPCFG_MQTT_REQUIRE_TLS,
+    .mqtt_ca_certificate = APPCFG_MQTT_CA_CERTIFICATE,
+    .screenshot_token = APPCFG_SCREENSHOT_TOKEN,
     .default_page = APP_DEFAULT_PAGE_WEATHER,
 };
 static app_config_t s_app_config;
@@ -44,6 +47,9 @@ esp_err_t app_config_init(void) {
     }
 
     s_app_config = s_default_config;
+    panel_layout_defaults(&s_app_config.layout);
+    if (!panel_layout_parse(APPCFG_DEFAULT_LAYOUT_JSON, &s_app_config.layout)) return ESP_ERR_INVALID_ARG;
+    s_app_config.default_page = (app_default_page_t)s_app_config.layout.default_page;
 
     esp_err_t ret = nvs_flash_init_partition(APP_CONFIG_PARTITION);
     if (ret == ESP_ERR_NOT_FOUND) {
@@ -79,8 +85,16 @@ esp_err_t app_config_init(void) {
         size_t required_size = sizeof(s_app_config.base_topic);
         nvs_get_str(nvs_handle, "base_topic", s_app_config.base_topic, &required_size);
         uint8_t default_page;
-        if (nvs_get_u8(nvs_handle, "default_page", &default_page) == ESP_OK && default_page <= APP_DEFAULT_PAGE_MEDIA) {
+        if (nvs_get_u8(nvs_handle, "default_page", &default_page) == ESP_OK && default_page < PANEL_PAGE_COUNT &&
+            panel_layout_contains(&s_app_config.layout, (panel_page_id_t)default_page)) {
             s_app_config.default_page = (app_default_page_t)default_page;
+        }
+        char layout_json[PANEL_LAYOUT_JSON_SIZE];
+        size_t layout_size = sizeof(layout_json);
+        s_app_config.layout.default_page = (panel_page_id_t)s_app_config.default_page;
+        if (nvs_get_str(nvs_handle, "pages", layout_json, &layout_size) == ESP_OK &&
+            panel_layout_parse(layout_json, &s_app_config.layout)) {
+            s_app_config.default_page = (app_default_page_t)s_app_config.layout.default_page;
         }
         nvs_close(nvs_handle);
     } else if (ret != ESP_ERR_NVS_NOT_FOUND) {
@@ -130,34 +144,32 @@ esp_err_t app_config_set_base_topic(const char *base_topic) {
 }
 
 const char *app_config_default_page_name(app_default_page_t page) {
-    return page == APP_DEFAULT_PAGE_MEDIA ? "media" : "weather";
+    return panel_page_name((panel_page_id_t)page);
+}
+
+esp_err_t app_config_set_pages(const char *json) {
+    panel_layout_t candidate;
+    if (!panel_layout_parse(json, &candidate)) return ESP_ERR_INVALID_ARG;
+    char canonical[PANEL_LAYOUT_JSON_SIZE], previous[PANEL_LAYOUT_JSON_SIZE];
+    if (!panel_layout_json(&candidate, canonical, sizeof(canonical))) return ESP_ERR_NO_MEM;
+    if (panel_layout_json(&s_app_config.layout, previous, sizeof(previous)) && strcmp(canonical, previous) == 0)
+        return ESP_OK;
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(RUNTIME_CONFIG_NAMESPACE, NVS_READWRITE, &handle), TAG, "Open layout config");
+    esp_err_t ret = nvs_set_str(handle, "pages", canonical);
+    if (ret == ESP_OK) ret = nvs_commit(handle);
+    nvs_close(handle);
+    if (ret != ESP_OK) return ret;
+    s_app_config.layout = candidate;
+    s_app_config.default_page = (app_default_page_t)candidate.default_page;
+    return ESP_OK;
 }
 
 esp_err_t app_config_set_default_page(const char *page_name) {
-    app_default_page_t page;
-    nvs_handle_t nvs_handle;
-
-    ESP_RETURN_ON_FALSE(page_name != NULL, ESP_ERR_INVALID_ARG, TAG, "Default page is null");
-    if (strcasecmp(page_name, "weather") == 0) {
-        page = APP_DEFAULT_PAGE_WEATHER;
-    } else if (strcasecmp(page_name, "media") == 0) {
-        page = APP_DEFAULT_PAGE_MEDIA;
-    } else {
-        ESP_LOGW(TAG, "Invalid default page '%s'", page_name);
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    ESP_RETURN_ON_ERROR(nvs_open(RUNTIME_CONFIG_NAMESPACE, NVS_READWRITE, &nvs_handle),
-                        TAG,
-                        "Failed to open runtime config for writing");
-    esp_err_t ret = nvs_set_u8(nvs_handle, "default_page", (uint8_t)page);
-    if (ret == ESP_OK) {
-        ret = nvs_commit(nvs_handle);
-    }
-    nvs_close(nvs_handle);
-    ESP_RETURN_ON_ERROR(ret, TAG, "Failed to save default page");
-
-    s_app_config.default_page = page;
-    ESP_LOGI(TAG, "Default page updated to '%s'", app_config_default_page_name(page));
-    return ESP_OK;
+    panel_layout_t candidate = s_app_config.layout;
+    if (!panel_page_parse(page_name, &candidate.default_page) ||
+        !panel_layout_contains(&candidate, candidate.default_page)) return ESP_ERR_INVALID_ARG;
+    char json[PANEL_LAYOUT_JSON_SIZE];
+    if (!panel_layout_json(&candidate, json, sizeof(json))) return ESP_ERR_NO_MEM;
+    return app_config_set_pages(json);
 }

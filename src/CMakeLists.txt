@@ -1,3 +1,6 @@
+if(NOT CMAKE_SCRIPT_MODE_FILE)
+    file(GLOB APP_CA_CERTIFICATES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/config/*.pem)
+endif()
 set(APP_CONFIG_YAML ${CMAKE_SOURCE_DIR}/config/panel_config.yaml)
 set(APP_CONFIG_GEN_DIR ${CMAKE_BINARY_DIR}/generated/include/walldisplay)
 set(APP_CONFIG_GEN_HEADER ${APP_CONFIG_GEN_DIR}/app_config_defaults.h)
@@ -9,7 +12,7 @@ if(NOT CMAKE_SCRIPT_MODE_FILE)
         OUTPUT ${APP_CONFIG_GEN_HEADER}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${APP_CONFIG_GEN_DIR}
         COMMAND ${PYTHON} ${CMAKE_SOURCE_DIR}/tools/generate_app_config_defaults.py ${APP_CONFIG_YAML} ${APP_CONFIG_GEN_HEADER}
-        DEPENDS ${APP_CONFIG_YAML} ${CMAKE_SOURCE_DIR}/tools/generate_app_config_defaults.py
+        DEPENDS ${APP_CONFIG_YAML} ${APP_CA_CERTIFICATES} ${CMAKE_SOURCE_DIR}/tools/generate_app_config_defaults.py
         VERBATIM
     )
 

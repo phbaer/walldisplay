@@ -17,6 +17,8 @@ esp_err_t ui_set_media_text(const char *media_text);
 esp_err_t ui_set_media_favorite_label(size_t index, const char *label_text);
 esp_err_t ui_set_media_favorite_icon(size_t index, const char *icon_name);
 esp_err_t ui_set_media_artwork(const uint16_t *pixels, size_t width, size_t height);
+esp_err_t ui_apply_page_layout(void);
+esp_err_t ui_set_grid_button(size_t index, const char *json);
 esp_err_t ui_show_page(const char *page_name);
 esp_err_t ui_set_clock_text(const char *clock_text);
 esp_err_t ui_set_date_text(const char *date_text);
@@ -27,6 +29,9 @@ esp_err_t ui_set_button_label(size_t index, const char *label_text);
 esp_err_t ui_set_button_state(size_t index, const char *state_text);
 esp_err_t ui_set_measurement_chip(size_t index, const char *chip_text);
 esp_err_t ui_set_measurement_chip_color(size_t index, const char *color_text);
+esp_err_t ui_show_update_screen(void);
+esp_err_t ui_set_update_progress(uint8_t percent);
+esp_err_t ui_hide_update_screen(void);
 
 #ifdef __cplusplus
 }

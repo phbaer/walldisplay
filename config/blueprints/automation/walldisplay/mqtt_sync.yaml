@@ -1,7 +1,8 @@
 blueprint:
-  name: WallDisplay MQTT Sync v0.5.0 (Contract 5)
+  # Generated from pyproject.toml by tools/sync_project_version.py.
+  name: WallDisplay MQTT Sync v1.0.0 (Contract 9)
   description: >-
-    Publish panel name, clock, weather, rich media controls and favourites, dynamic footer button labels, and optional header measurement chips
+    Publish the panel hostname, clock, weather, rich media controls and favourites, configurable weather/media/buttons/About pages, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
   homeassistant:
     min_version: 2024.10.0
@@ -14,11 +15,150 @@ blueprint:
       selector:
         text:
     panel_name:
-      name: Panel name
-      description: Header title displayed on the panel.
-      default: Living Room
+      name: Panel hostname
+      description: Hostname and header title. Use 1-32 lowercase ASCII letters, numbers, or hyphens; do not start or end with a hyphen.
+      default: walldisplay-living-room
       selector:
         text:
+    page1:
+      name: Page slot 1
+      description: Choose each page once; none disables this slot. Slots determine navigation order.
+      default: weather
+      selector: {select: {options: [weather, media, buttons, about, none]}}
+    page2:
+      name: Page slot 2
+      description: Choose each page once; none disables this slot. Slots determine navigation order.
+      default: media
+      selector: {select: {options: [weather, media, buttons, about, none]}}
+    page3:
+      name: Page slot 3
+      description: Choose each page once; none disables this slot. Slots determine navigation order.
+      default: none
+      selector: {select: {options: [weather, media, buttons, about, none]}}
+    page4:
+      name: Page slot 4
+      description: Choose each page once; none disables this slot. Slots determine navigation order.
+      default: none
+      selector: {select: {options: [weather, media, buttons, about, none]}}
+    page5:
+      name: Page slot 5
+      description: Choose each page once; none disables this slot. Slots determine navigation order.
+      default: none
+      selector: {select: {options: [weather, media, buttons, about, none]}}
+    default_page:
+      name: Startup page
+      description: Must be one of the enabled pages. Invalid layouts leave the last working panel layout unchanged.
+      default: weather
+      selector: {select: {options: [weather, media, buttons, about]}}
+    weather_title:
+      name: Weather page title
+      description: At most 48 UTF-8 bytes.
+      default: Weather
+      selector: {text: {}}
+    media_title:
+      name: Media page title
+      description: At most 48 UTF-8 bytes.
+      default: Media
+      selector: {text: {}}
+    buttons_title:
+      name: Buttons page title
+      description: At most 48 UTF-8 bytes.
+      default: Buttons
+      selector: {text: {}}
+    about_title:
+      name: About page title
+      description: At most 48 UTF-8 bytes. Shows the installed firmware and MQTT contract.
+      default: About
+      selector: {text: {}}
+    grid1_label:
+      name: Buttons page control 1 label
+      description: Empty hides the control. At most 96 UTF-8 bytes.
+      default: ""
+      selector: {text: {}}
+    grid1_state_entity:
+      name: Buttons page control 1 toggle entity
+      default: ""
+      selector: {entity: {domain: [light, switch, input_boolean, fan]}}
+    grid1_action:
+      name: Buttons page control 1 action
+      description: Runs when no toggle entity is selected.
+      default: []
+      selector: {action: {}}
+    grid2_label:
+      name: Buttons page control 2 label
+      description: Empty hides the control. At most 96 UTF-8 bytes.
+      default: ""
+      selector: {text: {}}
+    grid2_state_entity:
+      name: Buttons page control 2 toggle entity
+      default: ""
+      selector: {entity: {domain: [light, switch, input_boolean, fan]}}
+    grid2_action:
+      name: Buttons page control 2 action
+      description: Runs when no toggle entity is selected.
+      default: []
+      selector: {action: {}}
+    grid3_label:
+      name: Buttons page control 3 label
+      description: Empty hides the control. At most 96 UTF-8 bytes.
+      default: ""
+      selector: {text: {}}
+    grid3_state_entity:
+      name: Buttons page control 3 toggle entity
+      default: ""
+      selector: {entity: {domain: [light, switch, input_boolean, fan]}}
+    grid3_action:
+      name: Buttons page control 3 action
+      description: Runs when no toggle entity is selected.
+      default: []
+      selector: {action: {}}
+    grid4_label:
+      name: Buttons page control 4 label
+      description: Empty hides the control. At most 96 UTF-8 bytes.
+      default: ""
+      selector: {text: {}}
+    grid4_state_entity:
+      name: Buttons page control 4 toggle entity
+      default: ""
+      selector: {entity: {domain: [light, switch, input_boolean, fan]}}
+    grid4_action:
+      name: Buttons page control 4 action
+      description: Runs when no toggle entity is selected.
+      default: []
+      selector: {action: {}}
+    grid5_label:
+      name: Buttons page control 5 label
+      description: Empty hides the control. At most 96 UTF-8 bytes.
+      default: ""
+      selector: {text: {}}
+    grid5_state_entity:
+      name: Buttons page control 5 toggle entity
+      default: ""
+      selector: {entity: {domain: [light, switch, input_boolean, fan]}}
+    grid5_action:
+      name: Buttons page control 5 action
+      description: Runs when no toggle entity is selected.
+      default: []
+      selector: {action: {}}
+    grid6_label:
+      name: Buttons page control 6 label
+      description: Empty hides the control. At most 96 UTF-8 bytes.
+      default: ""
+      selector: {text: {}}
+    grid6_state_entity:
+      name: Buttons page control 6 toggle entity
+      default: ""
+      selector: {entity: {domain: [light, switch, input_boolean, fan]}}
+    grid6_action:
+      name: Buttons page control 6 action
+      description: Runs when no toggle entity is selected.
+      default: []
+      selector: {action: {}}
+    screenshots_enabled:
+      name: Enable authenticated screenshots
+      description: Requires a screenshot token provisioned in panel_config.yaml. Disabled by default.
+      default: false
+      selector: {boolean: {}}
     time_format:
       name: Clock format
       description: Select 24-hour or 12-hour time for the panel header.
@@ -32,6 +172,7 @@ blueprint:
               value: "12h"
     weather_entity:
       name: Weather entity
+      default: ""
       selector:
         entity:
           domain: weather
@@ -67,6 +208,7 @@ blueprint:
       selector: {entity: {domain: sensor}}
     media_entity:
       name: Media player entity
+      default: ""
       selector:
         entity:
           domain: media_player
@@ -395,8 +537,31 @@ trace:
   stored_traces: 20
 
 variables:
-  blueprint_version: "0.5.0"
-  panel_contract_version: "5"
+  screenshots_enabled: !input screenshots_enabled
+  page1: !input page1
+  page2: !input page2
+  page3: !input page3
+  page4: !input page4
+  page5: !input page5
+  default_page: !input default_page
+  weather_title: !input weather_title
+  media_title: !input media_title
+  buttons_title: !input buttons_title
+  about_title: !input about_title
+  grid1_label: !input grid1_label
+  grid1_state_entity: !input grid1_state_entity
+  grid2_label: !input grid2_label
+  grid2_state_entity: !input grid2_state_entity
+  grid3_label: !input grid3_label
+  grid3_state_entity: !input grid3_state_entity
+  grid4_label: !input grid4_label
+  grid4_state_entity: !input grid4_state_entity
+  grid5_label: !input grid5_label
+  grid5_state_entity: !input grid5_state_entity
+  grid6_label: !input grid6_label
+  grid6_state_entity: !input grid6_state_entity
+  blueprint_version: "1.0.0"
+  panel_contract_version: "9"
   panel_topic: !input panel_topic
   panel_name: !input panel_name
   time_format: !input time_format
@@ -489,16 +654,20 @@ triggers:
     minutes: "/5"
 
   - id: weather
-    trigger: state
-    entity_id: !input weather_entity
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input weather_entity
 
   - id: weather_refresh
     trigger: time_pattern
     minutes: "/30"
 
   - id: media
-    trigger: state
-    entity_id: !input media_entity
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input media_entity
 
   - id: chip1
     trigger: event
@@ -615,10 +784,184 @@ triggers:
     event_data:
       entity_id: !input button5_state_entity
 
+  - id: grid1_press
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/grid1"
+    payload: press
+  - id: grid1_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input grid1_state_entity
+
+  - id: grid2_press
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/grid2"
+    payload: press
+  - id: grid2_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input grid2_state_entity
+
+  - id: grid3_press
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/grid3"
+    payload: press
+  - id: grid3_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input grid3_state_entity
+
+  - id: grid4_press
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/grid4"
+    payload: press
+  - id: grid4_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input grid4_state_entity
+
+  - id: grid5_press
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/grid5"
+    payload: press
+  - id: grid5_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input grid5_state_entity
+
+  - id: grid6_press
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/grid6"
+    payload: press
+  - id: grid6_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input grid6_state_entity
+
 actions:
+  - choose:
+      - conditions: "{{ trigger.id in ['startup', 'automation_reload', 'panel_online', 'panel_sync', 'panel_refresh', 'grid1_state'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/grid/1"
+              qos: 1
+              retain: true
+              payload: "{{ {'label': grid1_label, 'state': states(grid1_state_entity) if grid1_state_entity | length > 0 else 'stateless'} | tojson }}"
+  - choose:
+      - conditions: "{{ trigger.id == 'grid1_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid1_label | length > 0 and grid1_state_entity | length > 0 and states(grid1_state_entity) not in ['unknown', 'unavailable'] }}"
+        sequence:
+          - action: homeassistant.toggle
+            target:
+              entity_id: "{{ grid1_state_entity }}"
+      - conditions: "{{ trigger.id == 'grid1_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid1_label | length > 0 and grid1_state_entity | length == 0 }}"
+        sequence: !input grid1_action
+  - choose:
+      - conditions: "{{ trigger.id in ['startup', 'automation_reload', 'panel_online', 'panel_sync', 'panel_refresh', 'grid2_state'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/grid/2"
+              qos: 1
+              retain: true
+              payload: "{{ {'label': grid2_label, 'state': states(grid2_state_entity) if grid2_state_entity | length > 0 else 'stateless'} | tojson }}"
+  - choose:
+      - conditions: "{{ trigger.id == 'grid2_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid2_label | length > 0 and grid2_state_entity | length > 0 and states(grid2_state_entity) not in ['unknown', 'unavailable'] }}"
+        sequence:
+          - action: homeassistant.toggle
+            target:
+              entity_id: "{{ grid2_state_entity }}"
+      - conditions: "{{ trigger.id == 'grid2_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid2_label | length > 0 and grid2_state_entity | length == 0 }}"
+        sequence: !input grid2_action
+  - choose:
+      - conditions: "{{ trigger.id in ['startup', 'automation_reload', 'panel_online', 'panel_sync', 'panel_refresh', 'grid3_state'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/grid/3"
+              qos: 1
+              retain: true
+              payload: "{{ {'label': grid3_label, 'state': states(grid3_state_entity) if grid3_state_entity | length > 0 else 'stateless'} | tojson }}"
+  - choose:
+      - conditions: "{{ trigger.id == 'grid3_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid3_label | length > 0 and grid3_state_entity | length > 0 and states(grid3_state_entity) not in ['unknown', 'unavailable'] }}"
+        sequence:
+          - action: homeassistant.toggle
+            target:
+              entity_id: "{{ grid3_state_entity }}"
+      - conditions: "{{ trigger.id == 'grid3_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid3_label | length > 0 and grid3_state_entity | length == 0 }}"
+        sequence: !input grid3_action
+  - choose:
+      - conditions: "{{ trigger.id in ['startup', 'automation_reload', 'panel_online', 'panel_sync', 'panel_refresh', 'grid4_state'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/grid/4"
+              qos: 1
+              retain: true
+              payload: "{{ {'label': grid4_label, 'state': states(grid4_state_entity) if grid4_state_entity | length > 0 else 'stateless'} | tojson }}"
+  - choose:
+      - conditions: "{{ trigger.id == 'grid4_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid4_label | length > 0 and grid4_state_entity | length > 0 and states(grid4_state_entity) not in ['unknown', 'unavailable'] }}"
+        sequence:
+          - action: homeassistant.toggle
+            target:
+              entity_id: "{{ grid4_state_entity }}"
+      - conditions: "{{ trigger.id == 'grid4_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid4_label | length > 0 and grid4_state_entity | length == 0 }}"
+        sequence: !input grid4_action
+  - choose:
+      - conditions: "{{ trigger.id in ['startup', 'automation_reload', 'panel_online', 'panel_sync', 'panel_refresh', 'grid5_state'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/grid/5"
+              qos: 1
+              retain: true
+              payload: "{{ {'label': grid5_label, 'state': states(grid5_state_entity) if grid5_state_entity | length > 0 else 'stateless'} | tojson }}"
+  - choose:
+      - conditions: "{{ trigger.id == 'grid5_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid5_label | length > 0 and grid5_state_entity | length > 0 and states(grid5_state_entity) not in ['unknown', 'unavailable'] }}"
+        sequence:
+          - action: homeassistant.toggle
+            target:
+              entity_id: "{{ grid5_state_entity }}"
+      - conditions: "{{ trigger.id == 'grid5_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid5_label | length > 0 and grid5_state_entity | length == 0 }}"
+        sequence: !input grid5_action
+  - choose:
+      - conditions: "{{ trigger.id in ['startup', 'automation_reload', 'panel_online', 'panel_sync', 'panel_refresh', 'grid6_state'] }}"
+        sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/grid/6"
+              qos: 1
+              retain: true
+              payload: "{{ {'label': grid6_label, 'state': states(grid6_state_entity) if grid6_state_entity | length > 0 else 'stateless'} | tojson }}"
+  - choose:
+      - conditions: "{{ trigger.id == 'grid6_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid6_label | length > 0 and grid6_state_entity | length > 0 and states(grid6_state_entity) not in ['unknown', 'unavailable'] }}"
+        sequence:
+          - action: homeassistant.toggle
+            target:
+              entity_id: "{{ grid6_state_entity }}"
+      - conditions: "{{ trigger.id == 'grid6_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid6_label | length > 0 and grid6_state_entity | length == 0 }}"
+        sequence: !input grid6_action
   - choose:
       - conditions: "{{ trigger.id in ['startup', 'automation_reload', 'panel_online', 'panel_sync', 'panel_refresh'] }}"
         sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/screenshots_enabled"
+              qos: 1
+              retain: true
+              payload: "{{ 'ON' if screenshots_enabled else 'OFF' }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/pages"
+              qos: 1
+              retain: true
+              payload: "{{ {'pages': [page1, page2, page3, page4, page5] | reject('equalto', 'none') | list, 'default_page': default_page, 'titles': {'weather': weather_title, 'media': media_title, 'buttons': buttons_title, 'about': about_title}} | tojson }}"
           - action: mqtt.publish
             data:
               topic: "{{ panel_topic }}/set/name"
@@ -823,7 +1166,7 @@ actions:
               payload: "{{ now().strftime('%a, %d %b') }}"
 
   - choose:
-      - conditions: "{{ trigger.id in ['weather', 'weather_refresh', 'startup', 'panel_online', 'panel_sync'] }}"
+      - conditions: "{{ weather_entity | length > 0 and trigger.id in ['weather', 'weather_refresh', 'startup', 'panel_online', 'panel_sync'] }}"
         sequence:
           - action: weather.get_forecasts
             target:
@@ -893,7 +1236,7 @@ actions:
                 } | tojson }}
 
   - choose:
-      - conditions: "{{ trigger.id in ['media', 'startup', 'panel_online', 'panel_sync'] }}"
+      - conditions: "{{ media_entity | length > 0 and trigger.id in ['media', 'startup', 'panel_online', 'panel_sync'] }}"
         sequence:
           - action: mqtt.publish
             data:
@@ -1107,6 +1450,7 @@ actions:
             'startup', 'automation_reload', 'panel_online', 'panel_sync', 'clock', 'panel_refresh',
             'weather', 'weather_refresh', 'media', 'chip1', 'chip2', 'chip3', 'chip4',
             'btn1_press', 'btn2_press', 'btn3_press', 'btn4_press', 'btn5_press',
+            'grid1_press', 'grid1_state', 'grid2_press', 'grid2_state', 'grid3_press', 'grid3_state', 'grid4_press', 'grid4_state', 'grid5_press', 'grid5_state', 'grid6_press', 'grid6_state',
             'button1_state', 'button2_state', 'button3_state', 'button4_state', 'button5_state'
           ] }}
         sequence:

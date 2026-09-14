@@ -2,6 +2,7 @@
 
 #include "esp_check.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_io_additions.h"
 #include "esp_lcd_panel_rgb.h"
@@ -12,6 +13,10 @@
 #include "esp_lcd_st7701.h"
 #include "driver/i2c_master.h"
 #include "driver/ledc.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include <string.h>
 
 static const char *TAG = "display_board";
 
@@ -25,6 +30,8 @@ static const char *TAG = "display_board";
 #define BOARD_LCD_DATA_WIDTH 16
 #define BOARD_LCD_BITS_PER_PIXEL 16
 #define BOARD_LCD_BOUNCE_BUFFER_HEIGHT 40
+#define BOARD_LCD_OTA_PIXEL_CLOCK_HZ (6 * 1000 * 1000)
+#define BOARD_LVGL_TASK_STACK_BYTES 16384
 #define BOARD_BACKLIGHT_LEDC_TIMER LEDC_TIMER_0
 #define BOARD_BACKLIGHT_LEDC_CHANNEL LEDC_CHANNEL_0
 #define BOARD_BACKLIGHT_LEDC_DUTY_RES LEDC_TIMER_10_BIT
@@ -105,15 +112,41 @@ static const st7701_lcd_init_cmd_t s_st7701_init_cmds[] = {
 };
 
 static esp_lcd_panel_io_handle_t s_panel_io_handle;
+static esp_lcd_panel_handle_t s_panel_handle;
 static i2c_master_bus_handle_t s_touch_i2c_bus;
 static bool s_lvgl_port_initialized;
+static uint8_t s_backlight_percent;
+static bool s_ota_backlight_disabled;
+static bool s_ota_pixel_clock_reduced;
+
+static esp_err_t clear_framebuffers(void) {
+    if (s_panel_handle == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    void *framebuffer0 = NULL;
+    void *framebuffer1 = NULL;
+    ESP_RETURN_ON_ERROR(esp_lcd_rgb_panel_get_frame_buffer(s_panel_handle, 2,
+                                                            &framebuffer0, &framebuffer1),
+                        TAG, "get RGB frame buffers failed");
+    const size_t framebuffer_size = (size_t) BOARD_LCD_WIDTH * BOARD_LCD_HEIGHT *
+                                    (BOARD_LCD_BITS_PER_PIXEL / 8);
+    memset(framebuffer0, 0, framebuffer_size);
+    memset(framebuffer1, 0, framebuffer_size);
+    return ESP_OK;
+}
 
 static esp_err_t init_lvgl_port(void) {
     if (s_lvgl_port_initialized) {
         return ESP_OK;
     }
 
-    const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    /* Media rendering has a deeper LVGL call path than the weather page.
+     * Keep this stack in PSRAM so the display driver's internal DMA buffers
+     * retain their headroom while page changes remain safe. */
+    lvgl_cfg.task_stack = BOARD_LVGL_TASK_STACK_BYTES;
+    lvgl_cfg.task_stack_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     ESP_RETURN_ON_ERROR(lvgl_port_init(&lvgl_cfg), TAG, "LVGL port init failed");
     s_lvgl_port_initialized = true;
     return ESP_OK;
@@ -140,13 +173,69 @@ static esp_err_t init_backlight(void) {
     return ledc_channel_config(&channel_config);
 }
 
+static esp_err_t apply_backlight(uint8_t percent) {
+    const uint32_t duty = (BOARD_BACKLIGHT_LEDC_MAX_DUTY * percent) / 100;
+    ESP_RETURN_ON_ERROR(ledc_set_duty(LEDC_LOW_SPEED_MODE, BOARD_BACKLIGHT_LEDC_CHANNEL, duty), TAG, "backlight duty failed");
+    ESP_RETURN_ON_ERROR(ledc_update_duty(LEDC_LOW_SPEED_MODE, BOARD_BACKLIGHT_LEDC_CHANNEL), TAG, "backlight update failed");
+    return ESP_OK;
+}
+
 esp_err_t display_board_set_backlight(uint8_t percent) {
     if (percent > 100) {
         return ESP_ERR_INVALID_ARG;
     }
-    const uint32_t duty = (BOARD_BACKLIGHT_LEDC_MAX_DUTY * percent) / 100;
-    ESP_RETURN_ON_ERROR(ledc_set_duty(LEDC_LOW_SPEED_MODE, BOARD_BACKLIGHT_LEDC_CHANNEL, duty), TAG, "backlight duty failed");
-    return ledc_update_duty(LEDC_LOW_SPEED_MODE, BOARD_BACKLIGHT_LEDC_CHANNEL);
+    s_backlight_percent = percent;
+    /* Dimming and touch activity may still request a brightness change while
+     * OTA is active. In the fallback mode, remember that request without
+     * re-enabling the backlight until the transfer has failed. */
+    return s_ota_backlight_disabled ? ESP_OK : apply_backlight(percent);
+}
+
+esp_err_t display_board_enter_ota(void) {
+    if (s_panel_handle == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_ota_backlight_disabled || s_ota_pixel_clock_reduced) {
+        return ESP_OK;
+    }
+
+    esp_err_t err = esp_lcd_rgb_panel_set_pclk(s_panel_handle, BOARD_LCD_OTA_PIXEL_CLOCK_HZ);
+    if (err == ESP_OK) {
+        /* The driver applies the new clock at VSYNC. Allow one complete frame
+         * to settle before flash/cache contention begins. */
+        vTaskDelay(pdMS_TO_TICKS(25));
+        err = esp_lcd_rgb_panel_restart(s_panel_handle);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Could not resynchronize RGB panel for OTA: %s; disabling backlight", esp_err_to_name(err));
+            s_ota_backlight_disabled = true;
+            return apply_backlight(0);
+        }
+        s_ota_pixel_clock_reduced = true;
+        return ESP_OK;
+    }
+
+    ESP_LOGW(TAG, "Could not reduce RGB pixel clock for OTA: %s; disabling backlight", esp_err_to_name(err));
+    s_ota_backlight_disabled = true;
+    return apply_backlight(0);
+}
+
+esp_err_t display_board_exit_ota(void) {
+    esp_err_t err = ESP_OK;
+    if (s_ota_pixel_clock_reduced) {
+        err = esp_lcd_rgb_panel_set_pclk(s_panel_handle, BOARD_LCD_PIXEL_CLOCK_HZ);
+        if (err == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(25));
+            err = esp_lcd_rgb_panel_restart(s_panel_handle);
+        }
+        s_ota_pixel_clock_reduced = false;
+    }
+
+    if (s_ota_backlight_disabled) {
+        s_ota_backlight_disabled = false;
+        esp_err_t backlight_err = apply_backlight(s_backlight_percent);
+        if (err == ESP_OK) err = backlight_err;
+    }
+    return err;
 }
 
 static esp_err_t init_panel(display_board_handle_t *handle) {
@@ -207,6 +296,9 @@ static esp_err_t init_panel(display_board_handle_t *handle) {
         .flags = {
             .fb_in_psram = 1,
         },
+        /* Keep two complete PSRAM frames so LVGL can draw into the inactive
+         * frame while the RGB DMA scans the active one.  The bounce buffers
+         * keep each scanline transfer in fast internal DMA memory. */
         .num_fbs = 2,
         .bounce_buffer_size_px = BOARD_LCD_WIDTH * BOARD_LCD_BOUNCE_BUFFER_HEIGHT,
         .dma_burst_size = 64,
@@ -230,6 +322,8 @@ static esp_err_t init_panel(display_board_handle_t *handle) {
     };
 
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_st7701(s_panel_io_handle, &panel_config, &handle->panel_handle), TAG, "ST7701 panel init failed");
+    s_panel_handle = handle->panel_handle;
+    ESP_RETURN_ON_ERROR(clear_framebuffers(), TAG, "clear RGB frame buffers failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(handle->panel_handle), TAG, "panel reset failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(handle->panel_handle), TAG, "panel hw init failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(handle->panel_handle, true), TAG, "panel on failed");
@@ -250,19 +344,17 @@ static esp_err_t init_panel(display_board_handle_t *handle) {
         .flags = {
             .buff_dma = false,
             .buff_spiram = false,
-            /* The swapped color format keeps both frame buffers consistent. */
+            /* The panel frame buffers are already in the panel's byte order. */
             .swap_bytes = false,
-            /*
-             * With the RGB panel's two frame buffers, direct mode redraws only
-             * changed regions and flips at a frame boundary.  Full refresh
-             * repaints the entire screen for each label update and flashes.
-             */
+            /* Direct mode keeps the two complete frame buffers coherent while
+             * LVGL redraws only invalidated regions. */
             .direct_mode = true,
-            .full_refresh = false,
         },
     };
     const lvgl_port_display_rgb_cfg_t rgb_port_cfg = {
         .flags = {
+            /* The bounce completion callback releases the LVGL flush only
+             * after the selected frame has reached the display DMA. */
             .bb_mode = true,
             .avoid_tearing = true,
         },
@@ -337,4 +429,18 @@ esp_err_t display_board_init(display_board_handle_t *handle) {
     ESP_RETURN_ON_ERROR(display_board_set_backlight(100), TAG, "backlight enable failed");
     ESP_LOGI(TAG, "Board initialized: ST7701 display and GT911 touch are registered with LVGL");
     return ESP_OK;
+}
+
+esp_err_t display_board_prepare_for_restart(void) {
+    if (s_panel_handle == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /* Stop exposing the RGB DMA contents before changing either frame. */
+    esp_err_t err = display_board_set_backlight(0);
+    esp_err_t clear_err = clear_framebuffers();
+    if (err != ESP_OK) {
+        return err;
+    }
+    return clear_err;
 }

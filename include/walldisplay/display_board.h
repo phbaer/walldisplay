@@ -49,3 +49,15 @@ typedef struct {
 
 esp_err_t display_board_init(display_board_handle_t *handle);
 esp_err_t display_board_set_backlight(uint8_t percent);
+/**
+ * Reduce RGB pixel-clock bandwidth while an OTA image is being written so the
+ * static update screen remains visible. The backlight is disabled only as a
+ * fallback if the panel cannot change its pixel clock.
+ */
+esp_err_t display_board_enter_ota(void);
+esp_err_t display_board_exit_ota(void);
+/**
+ * Turn off the backlight and blank both RGB frame buffers before rebooting.
+ * This prevents stale or partially rendered pixels being visible during reset.
+ */
+esp_err_t display_board_prepare_for_restart(void);

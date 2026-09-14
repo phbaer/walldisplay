@@ -1,0 +1,7 @@
+# Adapt paths and merge into your broker configuration.
+listener 8883
+allow_anonymous false
+certfile /etc/mosquitto/certs/server-chain.pem
+keyfile /etc/mosquitto/certs/server-key.pem
+password_file /etc/mosquitto/passwd
+acl_file /etc/mosquitto/walldisplay.acl

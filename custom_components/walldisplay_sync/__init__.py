@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -12,6 +13,7 @@ from homeassistant.const import Platform
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -27,6 +29,8 @@ from .const import (
     CONF_SCREEN_OFF_AFTER,
     CONF_TIME_FORMAT,
     CONF_DIM_BRIGHTNESS,
+    CONF_UPDATE_API_URL,
+    DOMAIN,
     CONF_CHIP_OK_COLOR,
     CONF_CHIP_WARN_COLOR,
     CONF_CHIP_ALERT_COLOR,
@@ -39,11 +43,18 @@ from .const import (
     favorite_label_key,
     favorite_payload_key,
 )
+from .pages import GRID_COUNT, layout_payload, grid_payload
+from .sync_jobs import publish_independently
+from .configuration import migrate_configuration
 from .runtime import WallDisplayRuntime
 from .artwork import ArtworkCache, async_register_cache, async_unregister_cache
+from .updates import async_latest_release, is_newer
 
 _LOGGER = logging.getLogger(__name__)
 _PLATFORMS = [Platform.BUTTON, Platform.EVENT]
+_UPDATE_ISSUE_PREFIX = "firmware_update_"
+_UPDATE_CHECK_INTERVAL = timedelta(hours=6)
+_UPDATE_RETRY_INTERVAL = timedelta(minutes=5)
 
 
 def _forecast_day(value: Any) -> str:
@@ -67,10 +78,10 @@ def _artwork_url(hass: HomeAssistant, value: Any) -> str:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    config = {**entry.data, **entry.options}
+    config = migrate_configuration({**entry.data, **entry.options})
     topic = config[CONF_PANEL_TOPIC].rstrip("/")
     panel_name = config.get(CONF_PANEL_NAME, "") or entry.title
-    entity_id = config[CONF_MEDIA_ENTITY]
+    entity_id = config.get(CONF_MEDIA_ENTITY, "")
     power_switch = config.get(CONF_MEDIA_POWER_SWITCH, "")
     weather_entity = config.get(CONF_WEATHER_ENTITY, "")
     temperature_entity = config.get(CONF_TEMPERATURE_ENTITY, "")
@@ -79,13 +90,93 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     wind_speed_entity = config.get(CONF_WIND_SPEED_ENTITY, "")
     rainfall_entity = config.get(CONF_RAINFALL_ENTITY, "")
     irradiance_entity = config.get(CONF_IRRADIANCE_ENTITY, "")
+    update_api_url = config.get(CONF_UPDATE_API_URL, "")
     entry.runtime_data = WallDisplayRuntime(hass, topic, entry.title, entry.unique_id or entry.entry_id)
     artwork = ArtworkCache(hass, entry.entry_id)
     async_register_cache(hass, artwork)
     entry.async_on_unload(lambda: async_unregister_cache(hass, entry.entry_id))
 
+    current_version = ""
+    last_update_check: datetime | None = None
+    update_check_lock = asyncio.Lock()
+    update_issue_id = f"{_UPDATE_ISSUE_PREFIX}{entry.entry_id}"
+    if not update_api_url:
+        ir.async_delete_issue(hass, DOMAIN, update_issue_id)
+
+    async def check_for_update(force: bool = False) -> None:
+        nonlocal last_update_check
+        if not current_version or not update_api_url:
+            return
+        now = dt_util.now()
+        if not force and last_update_check is not None and now - last_update_check < _UPDATE_RETRY_INTERVAL:
+            return
+        last_update_check = now
+        async with update_check_lock:
+            release = await async_latest_release(hass, update_api_url)
+            # Keep an existing issue when the release API is temporarily
+            # unavailable. A later panel heartbeat or scheduled check retries.
+            if release is None:
+                return
+            if not is_newer(current_version, release):
+                ir.async_delete_issue(hass, DOMAIN, update_issue_id)
+                return
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                update_issue_id,
+                data={
+                    "entry_id": entry.entry_id,
+                    "topic": topic,
+                    "panel_name": panel_name,
+                    "current_version": current_version,
+                    "latest_version": release.version,
+                    "manifest_url": release.manifest_url,
+                },
+                is_fixable=True,
+                is_persistent=True,
+                issue_domain=DOMAIN,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="firmware_update_available",
+                translation_placeholders={
+                    "panel_name": panel_name,
+                    "current_version": current_version,
+                    "latest_version": release.version,
+                },
+            )
+
+    async def panel_version(message: mqtt.ReceiveMessage) -> None:
+        nonlocal current_version
+        try:
+            payload = json.loads(message.payload)
+        except (TypeError, json.JSONDecodeError):
+            return
+        state = payload.get("state") if isinstance(payload, dict) else None
+        version = (payload.get("firmware_version") or payload.get("version")) if isinstance(payload, dict) else None
+        runtime = entry.runtime_data
+        if state in {"queued", "checking", "installing"}:
+            runtime.update_running = True
+            if isinstance(version, str) and version:
+                runtime.update_target = version
+        elif state == "error":
+            runtime.update_running = False
+            runtime.update_target = ""
+        if isinstance(version, str) and version:
+            if version != current_version:
+                current_version = version
+            if (runtime.update_running and runtime.update_target and
+                    getattr(message, "topic", "").endswith("/state/device") and version == runtime.update_target):
+                runtime.update_running = False
+                runtime.update_target = ""
+            # The panel publishes retained device information periodically.
+            # Retry checks after startup/network failures, with a debounce.
+            await check_for_update()
+
+    media_generation = 0
     async def publish_media(_: Event | None = None) -> None:
-        state = hass.states.get(entity_id)
+        nonlocal media_generation
+        media_generation += 1
+        generation = media_generation
+        state = hass.states.get(entity_id) if entity_id else None
         if state is None:
             return
         attrs = state.attributes
@@ -102,7 +193,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         base_url = hass.config.internal_url or hass.config.external_url
         if base_url and await artwork.async_update(source):
             payload["artwork_url"] = artwork.url(base_url)
-        await mqtt.async_publish(hass, f"{topic}/set/media", json.dumps(payload), 1, True)
+        if generation == media_generation:
+            await mqtt.async_publish(hass, f"{topic}/set/media", json.dumps(payload), 1, True)
 
     async def publish_favorites() -> None:
         for slot in range(1, MEDIA_FAVORITE_COUNT + 1):
@@ -110,6 +202,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await mqtt.async_publish(hass, f"{topic}/set/media/favorite{slot}/icon", config.get(favorite_icon_key(slot), "radio"), 1, True)
 
     async def publish_panel_configuration() -> None:
+        await mqtt.async_publish(hass, f"{topic}/set/screenshots_enabled", "ON" if config["screenshots_enabled"] else "OFF", 1, True)
+        await mqtt.async_publish(hass, f"{topic}/set/pages", json.dumps(layout_payload(config), ensure_ascii=False), 1, True)
+        # Keep the compatibility payload aligned with the generated manifest.
+        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "1.0.0", "contract": "9"}), 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/name", panel_name, 1, True)
         await mqtt.async_publish(
             hass,
@@ -218,6 +314,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await hass.services.async_call("media_player", "play_media", {**payload, "entity_id": entity_id}, blocking=False)
 
     async def handle_command(message: mqtt.ReceiveMessage) -> None:
+        if getattr(message, "retain", False):
+            return
         command = message.topic.rsplit("/", 1)[-1]
         if command == "volume":
             try:
@@ -257,9 +355,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 slot = int(command.removeprefix("button"))
             except ValueError:
                 return
-            if 1 <= slot <= FOOTER_BUTTON_COUNT:
+            if 1 <= slot <= FOOTER_BUTTON_COUNT and config.get(footer_label_key(slot), ""):
                 state_entity = config.get(footer_state_key(slot), "")
                 if state_entity:
+                    state = hass.states.get(state_entity)
+                    if state is None or state.state in {"unknown", "unavailable"}:
+                        return
                     await hass.services.async_call(
                         "homeassistant",
                         "toggle",
@@ -269,14 +370,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     entry.runtime_data.fire_footer_button(slot)
 
+    async def publish_grid(_: Event | None = None) -> None:
+        for slot in range(1, GRID_COUNT + 1):
+            entity = config.get(f"grid{slot}_state_entity", "")
+            state = hass.states.get(entity) if entity else None
+            value = state.state if state else ("unavailable" if entity else "stateless")
+            await mqtt.async_publish(hass, f"{topic}/set/grid/{slot}", json.dumps(grid_payload(config, slot, value)), 1, True)
+
+    async def handle_grid(message: mqtt.ReceiveMessage) -> None:
+        if getattr(message, "retain", False):
+            return
+        suffix = message.topic.removeprefix(f"{topic}/cmd/grid")
+        if suffix not in {str(i) for i in range(1, GRID_COUNT + 1)} or message.payload != "press":
+            return
+        slot = int(suffix)
+        if not config.get(f"grid{slot}_label") or "buttons" not in layout_payload(config)["pages"]:
+            return
+        entity = config.get(f"grid{slot}_state_entity", "")
+        if entity:
+            state = hass.states.get(entity)
+            if state and state.state not in {"unknown", "unavailable"}:
+                await hass.services.async_call("homeassistant", "toggle", target={"entity_id": entity}, blocking=False)
+        else:
+            entry.runtime_data.fire_footer_button(FOOTER_BUTTON_COUNT + slot)
+
     async def publish_all() -> None:
-        await publish_media()
-        await publish_panel_configuration()
-        await publish_clock()
-        await publish_favorites()
-        await publish_weather()
-        await publish_chips()
-        await publish_footers()
+        # Each publisher can fail or wait independently of configuration and controls.
+        await publish_independently(
+            publish_panel_configuration, publish_clock, publish_favorites,
+            publish_chips, publish_footers, publish_grid, publish_media, publish_weather,
+        )
 
     async def panel_status(message: mqtt.ReceiveMessage) -> None:
         if message.payload == "online":
@@ -285,7 +408,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def panel_sync(_: mqtt.ReceiveMessage) -> None:
         await publish_all()
 
-    entry.async_on_unload(async_track_state_change_event(hass, [entity_id], publish_media))
+    await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
+    if entity_id:
+        entry.async_on_unload(async_track_state_change_event(hass, [entity_id], publish_media))
+    grid_entities = [config.get(f"grid{i}_state_entity", "") for i in range(1, GRID_COUNT + 1)]
+    if any(grid_entities):
+        entry.async_on_unload(async_track_state_change_event(hass, [entity for entity in grid_entities if entity], publish_grid))
+    for slot in range(1, GRID_COUNT + 1):
+        entry.async_on_unload(await mqtt.async_subscribe(hass, f"{topic}/cmd/grid{slot}", handle_grid, 1))
     entry.async_on_unload(async_track_time_interval(hass, publish_clock, timedelta(minutes=1)))
     weather_sources = [entity for entity in [weather_entity, temperature_entity, humidity_entity, pressure_entity, wind_speed_entity, rainfall_entity, irradiance_entity] if entity]
     if weather_sources:
@@ -294,12 +424,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(async_track_state_change_event(hass, [entity for entity in chip_entities if entity], publish_chips))
     footer_entities = [config.get(footer_state_key(slot), "") for slot in range(1, FOOTER_BUTTON_COUNT + 1)]
     entry.async_on_unload(async_track_state_change_event(hass, [entity for entity in footer_entities if entity], publish_footers))
+    for slot in range(1, FOOTER_BUTTON_COUNT + 1):
+        entry.async_on_unload(await mqtt.async_subscribe(hass, f"{topic}/cmd/button{slot}", handle_command, 1))
     entry.async_on_unload(await mqtt.async_subscribe(hass, f"{topic}/cmd/media/#", handle_command, 1))
     entry.async_on_unload(await mqtt.async_subscribe(hass, f"{topic}/status", panel_status, 1))
     entry.async_on_unload(await mqtt.async_subscribe(hass, f"{topic}/cmd/sync", panel_sync, 1))
+    entry.async_on_unload(await mqtt.async_subscribe(hass, f"{topic}/state/device", panel_version, 1))
+    entry.async_on_unload(await mqtt.async_subscribe(hass, f"{topic}/state/update", panel_version, 1))
+    if update_api_url:
+        entry.async_on_unload(
+            async_track_time_interval(hass, lambda _: check_for_update(force=True), _UPDATE_CHECK_INTERVAL)
+        )
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await publish_all()
-    await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
     return True
 
 
@@ -309,3 +446,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    if entry.version == 1:
+        data = migrate_configuration({**entry.data, **entry.options})
+        hass.config_entries.async_update_entry(entry, data=data, options={}, version=2)
+        return True
+    return entry.version == 2

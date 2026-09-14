@@ -3,6 +3,17 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
+# Keep RGB bounce-buffer refills predictable while Wi-Fi and flash use PSRAM.
+# Moving instructions and read-only data to PSRAM avoids flash-cache stalls;
+# the larger data-cache line reduces refill overhead for the scanout stream.
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+# A recurring VSYNC restart is a visible flash and is not a substitute for
+# sufficient PSRAM bandwidth. The lower clock and tuned bounce path provide
+# the normal-mode margin instead.
+# CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
@@ -10,6 +21,15 @@ CONFIG_LWIP_LOCAL_HOSTNAME="guition-panel"
 CONFIG_MQTT_PROTOCOL_311=y
 CONFIG_MQTT_TRANSPORT_SSL=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+# Keep TLS record buffers dynamic so the persistent MQTT session and the
+# short-lived HTTPS artwork request can coexist within internal RAM.
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+# Keep the standard TLS maximum inbound record size; OTA downloads can contain
+# 16 KiB records from the release server.
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+# MQTT and HTTP requests are all below this size; dynamic fragmentation keeps
+# larger records working while avoiding a 4 KiB contiguous TX allocation.
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=2048
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
