@@ -177,7 +177,9 @@ static esp_err_t parse_manifest(const char *json, ota_manifest_t *manifest) {
     return err;
 }
 
-static esp_err_t download_firmware(const ota_manifest_t *manifest) {
+/* Keep this as a distinct frame so the OTA stack guard can inspect the
+ * direct download call path even in performance-optimized builds. */
+static __attribute__((noinline)) esp_err_t download_firmware(const ota_manifest_t *manifest) {
     const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
     if (partition == NULL || manifest->size > partition->size) {
         return ESP_ERR_INVALID_SIZE;

@@ -243,6 +243,9 @@ python tools/sync_custom_component.py --check
 python tools/check_ota_stack.py
 ```
 
+The OTA stack guard requires the firmware download routine to remain a distinct
+non-inlined frame; this keeps the static budget check valid in optimized builds.
+
 The release workflow builds firmware before running native tests so the managed cJSON source is available. The Python tests were validated with Home Assistant 2026.9.2. `custom_components/walldisplay_sync` is the canonical integration source; run `python tools/sync_custom_component.py` after changes to refresh `config/custom_components/walldisplay_sync`. See the [security/reliability implementation plan](docs/plans/security-reliability.md), [configurable-pages implementation plan](docs/plans/configurable-pages.md), and [About page implementation plan](docs/plans/about-page.md) for scope and fixed release selections.
 
 Follow [AGENTS.md](AGENTS.md) and [the maintenance workflow](skills/project-maintenance/SKILL.md): keep this README current, select one aligned firmware/blueprint release (and MQTT contract, when needed) from the feature base and retain it through all follow-up commits, validate affected artifacts, and commit verified closed implementation steps with short descriptive messages.
