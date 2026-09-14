@@ -252,18 +252,18 @@ static esp_err_t init_panel(display_board_handle_t *handle) {
             .buff_spiram = false,
             /* The swapped color format keeps both frame buffers consistent. */
             .swap_bytes = false,
-            /*
-             * With the RGB panel's two frame buffers, direct mode redraws only
-             * changed regions and flips at a frame boundary.  Full refresh
-             * repaints the entire screen for each label update and flashes.
+            /* LVGL 9 synchronizes invalidated regions between two direct-mode
+             * buffers before the next frame-boundary swap.  This preserves
+             * partial-render performance without exposing stale regions.
              */
             .direct_mode = true,
-            .full_refresh = false,
         },
     };
     const lvgl_port_display_rgb_cfg_t rgb_port_cfg = {
         .flags = {
-            .bb_mode = true,
+            /* Signal completed frame buffers at VSYNC; this avoids visible
+             * tearing when LVGL's direct-mode buffers are swapped. */
+            .bb_mode = false,
             .avoid_tearing = true,
         },
     };

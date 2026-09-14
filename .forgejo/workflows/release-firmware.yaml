@@ -1,133 +1,158 @@
-name: Release firmware
+name: Firmware builds and releases
+
+# Keep this equal to Forgejo's externally reachable canonical URL. The runner's
+# forgejo.server_url may be an internal Docker hostname in container setups.
+env:
+  PUBLIC_URL: ${{ vars.PUBLIC_URL }}
 
 on:
   push:
-    branches:
-      - '**'
-    tags:
-      - 'v*'
+    branches: ['**']
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Optional existing v* tag to publish (leave empty for a build only)
+        description: Existing vMAJOR.MINOR.PATCH[-prerelease] tag; empty builds artifacts only
         required: false
         type: string
 
 jobs:
-  release:
-    # The local runner selects the job; the container provides ESP-IDF and Python.
+  build:
+    if: ${{ !((forgejo.event_name == 'push' && startsWith(forgejo.ref, 'refs/tags/v')) || (forgejo.event_name == 'workflow_dispatch' && inputs.release_tag != '')) }}
     runs-on: node
     container:
       image: espressif/idf:v6.0.3
+    defaults:
+      run:
+        shell: bash
     steps:
-      - name: Install checkout action runtime
+      - name: Install action runtime
         run: |
           apt-get update
           apt-get install -y --no-install-recommends nodejs
-
-      - name: Check out release source
-        uses: https://data.forgejo.org/actions/checkout@v7
+      - uses: https://data.forgejo.org/actions/checkout@v7
         with:
-          # A manual dispatch may publish an existing tag; otherwise use the event ref.
-          ref: ${{ inputs.release_tag || forgejo.ref }}
-          # Git Cliff needs complete tagged history to calculate release notes.
           fetch-depth: 0
+          persist-credentials: false
+      - name: Trust checkout in build container
+        env:
+          CHECKOUT_WORKSPACE: ${{ forgejo.workspace }}
+        run: git config --global --add safe.directory "$CHECKOUT_WORKSPACE"
+      - name: Synchronize project version
+        run: python tools/sync_project_version.py --check
+      - name: Select version and verify source
+        id: release
+        run: |
+          tag=""
+          python tools/firmware_release.py select --tag "$tag" --output "$FORGEJO_OUTPUT"
+      - name: Build and verify unsigned test firmware
+        run: bash tools/ci_firmware.sh build
+      - name: Package firmware
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          SERVER: ${{ env.PUBLIC_URL }}
+          REPOSITORY: ${{ forgejo.repository }}
+        run: python tools/firmware_release.py package --version "$VERSION" --server "$SERVER" --repo "$REPOSITORY"
+      - name: Upload build artifacts
+        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        with:
+          name: firmware-${{ steps.release.outputs.version }}-${{ forgejo.run_id }}-${{ forgejo.run_attempt }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Select release version
+  release:
+    if: ${{ (forgejo.event_name == 'push' && startsWith(forgejo.ref, 'refs/tags/v')) || (forgejo.event_name == 'workflow_dispatch' && inputs.release_tag != '') }}
+    runs-on: node
+    concurrency:
+      group: firmware-release-${{ inputs.release_tag || forgejo.ref_name }}
+      cancel-in-progress: false
+    container:
+      image: espressif/idf:v6.0.3
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install action runtime
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends nodejs
+      - uses: https://data.forgejo.org/actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag || forgejo.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Trust checkout in build container
+        env:
+          CHECKOUT_WORKSPACE: ${{ forgejo.workspace }}
+        run: git config --global --add safe.directory "$CHECKOUT_WORKSPACE"
+      - name: Synchronize project version
+        run: python tools/sync_project_version.py --check
+      - name: Select version and verify source
         id: release
         env:
           REQUESTED_TAG: ${{ inputs.release_tag }}
+          EVENT_REF: ${{ forgejo.ref }}
         run: |
-          if [ -n "$REQUESTED_TAG" ]; then
-            VERSION="$REQUESTED_TAG"
-          elif [[ "${FORGEJO_REF:-}" == refs/tags/* ]]; then
-            VERSION="$FORGEJO_REF_NAME"
-          else
-            VERSION="dev-${FORGEJO_SHA:0:7}"
-          fi
-          case "$VERSION" in
-            v[0-9]*|dev-??????? ) ;;
-            * ) echo "Release tags must begin with v (got: $VERSION)" >&2; exit 1 ;;
-          esac
-          RELEASE_SHA="$(git rev-parse HEAD)"
-          echo "VERSION=$VERSION" >> "$FORGEJO_ENV"
-          echo "version=$VERSION" >> "$FORGEJO_OUTPUT"
-          echo "sha=$RELEASE_SHA" >> "$FORGEJO_OUTPUT"
-
-      - name: Build ESP32-S3 firmware
-        run: |
-          test -f config/panel_config.yaml || cp config/panel_config.example.yaml config/panel_config.yaml
-          . /opt/esp/idf/export.sh
-          idf.py set-target esp32s3
-          idf.py build
-
-      - name: Run unit tests
-        run: sh tests/run_unit_tests.sh
-
-      - name: Create firmware package and OTA manifest
-        run: |
-          mkdir -p dist/factory
-          cp build/walldisplay.bin "dist/walldisplay-${VERSION}.bin"
-          cp build/bootloader/bootloader.bin dist/factory/
-          cp build/partition_table/partition-table.bin dist/factory/
-          cp "dist/walldisplay-${VERSION}.bin" dist/factory/walldisplay.bin
-          cp partitions.csv dist/factory/
-          tar -C dist/factory -czf "dist/walldisplay-${VERSION}-factory.tar.gz" .
-          SHA256="$(sha256sum "dist/walldisplay-${VERSION}.bin" | awk '{print $1}')"
-          SIZE="$(wc -c < "dist/walldisplay-${VERSION}.bin" | tr -d ' ')"
-          OTA_URL="${FORGEJO_SERVER_URL}/${FORGEJO_REPOSITORY}/releases/download/${VERSION}/walldisplay-${VERSION}.bin"
-          export VERSION SHA256 SIZE OTA_URL
-          python3 -c 'import json, os; print(json.dumps({"version": os.environ["VERSION"], "target": "esp32s3", "url": os.environ["OTA_URL"], "sha256": os.environ["SHA256"], "size": int(os.environ["SIZE"]), "build": os.environ.get("FORGEJO_SHA", "")}, indent=2))' > "dist/walldisplay-${VERSION}.json"
-
-      - name: Prepare Forgejo release publisher and changelog generator
-        if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
+          tag="${REQUESTED_TAG:-${EVENT_REF#refs/tags/}}"
+          python tools/firmware_release.py select --tag "$tag" --output "$FORGEJO_OUTPUT"
+      - name: Validate Forgejo public URL
+        env:
+          SERVER: ${{ env.PUBLIC_URL }}
+        run: test -n "$SERVER" || { echo 'PUBLIC_URL is missing from the workflow' >&2; exit 1; }
+      - name: Build and verify signed release
+        env:
+          OTA_SIGNING_KEY_PEM: ${{ secrets.OTA_SIGNING_KEY_PEM }}
+        run: bash tools/ci_firmware.sh release
+      - name: Package firmware
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          SERVER: ${{ env.PUBLIC_URL }}
+          REPOSITORY: ${{ forgejo.repository }}
+        run: python tools/firmware_release.py package --version "$VERSION" --server "$SERVER" --repo "$REPOSITORY"
+      - name: Generate release notes
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends jq curl python3-venv
+          apt-get install -y --no-install-recommends python3-venv curl jq
           python3 -m venv /tmp/git-cliff-venv
           /tmp/git-cliff-venv/bin/pip install --no-cache-dir git-cliff==2.13.1
-
-      - name: Compute changelog and release notes
-        id: changelog
-        if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
-        run: |
           /tmp/git-cliff-venv/bin/git-cliff --tag "$VERSION" --output dist/CHANGELOG.md
-          NOTES="$(/tmp/git-cliff-venv/bin/git-cliff --tag "$VERSION" --unreleased --strip all 2>/dev/null || /tmp/git-cliff-venv/bin/git-cliff --latest --strip all)"
-          {
-            echo "notes<<CHANGELOG_NOTES"
-            printf '%s\n' "$NOTES"
-            echo "CHANGELOG_NOTES"
-          } >> "$FORGEJO_OUTPUT"
-
-      - name: Publish changelog to Forgejo wiki
-        if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
+          /tmp/git-cliff-venv/bin/git-cliff --latest --strip all > release-notes.md
+      - name: Upload build artifacts
+        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        with:
+          name: firmware-${{ steps.release.outputs.version }}-${{ forgejo.run_id }}-${{ forgejo.run_attempt }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish Forgejo release
+        env:
+          SERVER: ${{ env.PUBLIC_URL }}
+          REPOSITORY: ${{ forgejo.repository }}
+          RELEASE_TOKEN: ${{ forgejo.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
         run: |
-          AUTH="$(printf 'x-access-token:%s' "$FORGEJO_TOKEN" | base64 -w 0)"
-          WIKI_URL="${FORGEJO_SERVER_URL}/${FORGEJO_REPOSITORY}.wiki.git"
-          git -c "http.extraHeader=AUTHORIZATION: basic $AUTH" clone "$WIKI_URL" wiki
+          args=(python tools/publish_forgejo_release.py --server "$SERVER" --repo "$REPOSITORY" --token "$RELEASE_TOKEN" --tag "$VERSION" --title "Wall Display $VERSION" --notes-file release-notes.md --release-dir dist)
+          if [ "$PRERELEASE" = true ]; then args+=(--prerelease); fi
+          "${args[@]}"
+      - name: Publish stable changelog to Forgejo wiki
+        if: steps.release.outputs.prerelease == 'false'
+        env:
+          RELEASE_TOKEN: ${{ forgejo.token }}
+          SERVER: ${{ env.PUBLIC_URL }}
+          REPOSITORY: ${{ forgejo.repository }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          AUTH="$(printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 -w 0)"
+          git -c "http.extraHeader=AUTHORIZATION: basic $AUTH" clone "${SERVER}/${REPOSITORY}.wiki.git" wiki
           cp dist/CHANGELOG.md wiki/Changelog.md
           git -C wiki add Changelog.md
-          if git -C wiki diff --cached --quiet; then
-            exit 0
-          fi
-          git -C wiki config user.name "Forgejo Actions"
-          git -C wiki config user.email "actions@forgejo.local"
+          if git -C wiki diff --cached --quiet; then exit 0; fi
+          git -C wiki config user.name 'Forgejo Actions'
+          git -C wiki config user.email 'actions@forgejo.local'
           git -C wiki commit -m "docs: update changelog for ${VERSION} [skip ci]"
           git -C wiki -c "http.extraHeader=AUTHORIZATION: basic $AUTH" push origin HEAD
-
-      - name: Publish Forgejo release assets
-        if: forgejo.ref_type == 'tag' || inputs.release_tag != ''
-        uses: https://data.forgejo.org/actions/forgejo-release@98265452477dafb3f0f27ba9c462c90b18cb44fd # v2.13.4
-        with:
-          direction: upload
-          url: ${{ forgejo.server_url }}
-          repo: ${{ forgejo.repository }}
-          tag: ${{ steps.release.outputs.version }}
-          title: Wall Display ${{ steps.release.outputs.version }}
-          sha: ${{ steps.release.outputs.sha }}
-          token: ${{ forgejo.token }}
-          release-dir: dist
-          release-notes: ${{ steps.changelog.outputs.notes }}
-          prerelease: ${{ contains(steps.release.outputs.version, '-') }}
-          override: true

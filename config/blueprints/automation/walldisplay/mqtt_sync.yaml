@@ -1,5 +1,6 @@
 blueprint:
-  name: WallDisplay MQTT Sync v0.6.0 (Contract 6)
+  # Generated from pyproject.toml by tools/sync_project_version.py.
+  name: WallDisplay MQTT Sync v1.0.0 (Contract 7)
   description: >-
     Publish panel name, clock, weather, rich media controls and favourites, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
@@ -138,6 +139,11 @@ blueprint:
       description: Runs when no toggle entity is selected.
       default: []
       selector: {action: {}}
+    screenshots_enabled:
+      name: Enable authenticated screenshots
+      description: Requires a screenshot token provisioned in panel_config.yaml. Disabled by default.
+      default: false
+      selector: {boolean: {}}
     time_format:
       name: Clock format
       description: Select 24-hour or 12-hour time for the panel header.
@@ -516,6 +522,7 @@ trace:
   stored_traces: 20
 
 variables:
+  screenshots_enabled: !input screenshots_enabled
   page1: !input page1
   page2: !input page2
   page3: !input page3
@@ -535,8 +542,8 @@ variables:
   grid5_state_entity: !input grid5_state_entity
   grid6_label: !input grid6_label
   grid6_state_entity: !input grid6_state_entity
-  blueprint_version: "0.6.0"
-  panel_contract_version: "6"
+  blueprint_version: "1.0.0"
+  panel_contract_version: "7"
   panel_topic: !input panel_topic
   panel_name: !input panel_name
   time_format: !input time_format
@@ -925,6 +932,12 @@ actions:
   - choose:
       - conditions: "{{ trigger.id in ['startup', 'automation_reload', 'panel_online', 'panel_sync', 'panel_refresh'] }}"
         sequence:
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/screenshots_enabled"
+              qos: 1
+              retain: true
+              payload: "{{ 'ON' if screenshots_enabled else 'OFF' }}"
           - action: mqtt.publish
             data:
               topic: "{{ panel_topic }}/set/pages"

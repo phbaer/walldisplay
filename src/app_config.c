@@ -23,6 +23,9 @@ static const app_config_t s_default_config = {
     .discovery_prefix = APPCFG_DEFAULT_DISCOVERY_PREFIX,
     .base_topic = APPCFG_DEFAULT_BASE_TOPIC,
     .enable_discovery = APPCFG_DEFAULT_ENABLE_DISCOVERY,
+    .mqtt_require_tls = APPCFG_MQTT_REQUIRE_TLS,
+    .mqtt_ca_certificate = APPCFG_MQTT_CA_CERTIFICATE,
+    .screenshot_token = APPCFG_SCREENSHOT_TOKEN,
     .default_page = APP_DEFAULT_PAGE_WEATHER,
 };
 static app_config_t s_app_config;

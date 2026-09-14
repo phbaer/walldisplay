@@ -1,4 +1,6 @@
 #include "walldisplay/screenshot.h"
+#include "walldisplay/app_config.h"
+#include "walldisplay/security_policy.h"
 
 #include "esp_err.h"
 #include "esp_check.h"
@@ -13,6 +15,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <stdatomic.h>
+#include "freertos/semphr.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -32,6 +37,16 @@ static const display_board_handle_t *s_board;
 static screenshot_status_cb_t s_status_callback;
 static QueueHandle_t s_capture_queue;
 static httpd_handle_t s_http_server;
+static SemaphoreHandle_t s_storage_lock;
+static atomic_bool s_enabled;
+static char s_saved_names[4][SCREENSHOT_NAME_MAX];
+static size_t s_next_saved;
+
+static bool authorized(httpd_req_t *request) {
+    char header[80];
+    if (httpd_req_get_hdr_value_str(request, "Authorization", header, sizeof(header)) != ESP_OK) return false;
+    return screenshot_authorized(app_config_get()->screenshot_token, header);
+}
 
 typedef struct {
     char name[SCREENSHOT_NAME_MAX];
@@ -141,6 +156,7 @@ static esp_err_t write_bmp(const uint8_t *frame, uint32_t source_stride, const c
 }
 
 static esp_err_t capture_frame(const char *name) {
+    if (!atomic_load(&s_enabled)) return ESP_ERR_INVALID_STATE;
     const size_t frame_bytes = (size_t)BOARD_LCD_WIDTH * BOARD_LCD_HEIGHT * SCREENSHOT_BYTES_PER_PIXEL;
     uint8_t *frame = heap_caps_malloc(frame_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (frame == NULL) {
@@ -166,7 +182,22 @@ static esp_err_t capture_frame(const char *name) {
     lvgl_port_unlock();
 
     if (result == ESP_OK) {
-        result = write_bmp(frame, BOARD_LCD_WIDTH * SCREENSHOT_BYTES_PER_PIXEL, name);
+        xSemaphoreTake(s_storage_lock, portMAX_DELAY);
+        if (atomic_load(&s_enabled)) {
+            bool existing = false;
+            for (size_t i = 0; i < 4; ++i) existing |= strcmp(s_saved_names[i], name) == 0;
+            if (!existing && s_saved_names[s_next_saved][0]) {
+                char path[SCREENSHOT_NAME_MAX + 16];
+                screenshot_path(path, sizeof(path), s_saved_names[s_next_saved], "bmp");
+                unlink(path);
+            }
+            result = write_bmp(frame, BOARD_LCD_WIDTH * SCREENSHOT_BYTES_PER_PIXEL, name);
+            if (result == ESP_OK && !existing) {
+                strlcpy(s_saved_names[s_next_saved], name, SCREENSHOT_NAME_MAX);
+                s_next_saved = (s_next_saved + 1) % 4;
+            }
+        } else result = ESP_ERR_INVALID_STATE;
+        xSemaphoreGive(s_storage_lock);
     }
     free(frame);
     return result;
@@ -194,6 +225,12 @@ static void screenshot_task(void *arg) {
 }
 
 static esp_err_t screenshot_http_get(httpd_req_t *request) {
+    if (!authorized(request)) {
+        httpd_resp_set_status(request, "401 Unauthorized");
+        httpd_resp_set_hdr(request, "WWW-Authenticate", "Bearer");
+        return httpd_resp_send(request, "Authentication required", HTTPD_RESP_USE_STRLEN);
+    }
+    if (!atomic_load(&s_enabled)) return httpd_resp_send_err(request, HTTPD_404_NOT_FOUND, "Screenshots disabled");
     char name[SCREENSHOT_NAME_MAX] = SCREENSHOT_DEFAULT_NAME;
     const size_t query_length = httpd_req_get_url_query_len(request);
     if (query_length > 0 && query_length < 96) {
@@ -208,12 +245,15 @@ static esp_err_t screenshot_http_get(httpd_req_t *request) {
     }
     char file_path[SCREENSHOT_NAME_MAX + 16];
     screenshot_path(file_path, sizeof(file_path), name, "bmp");
+    xSemaphoreTake(s_storage_lock, portMAX_DELAY);
     FILE *file = fopen(file_path, "rb");
     if (file == NULL) {
+        xSemaphoreGive(s_storage_lock);
         httpd_resp_send_err(request, HTTPD_404_NOT_FOUND, "No screenshot captured yet");
         return ESP_FAIL;
     }
 
+    httpd_resp_set_hdr(request, "Cache-Control", "no-store");
     httpd_resp_set_type(request, "image/bmp");
     httpd_resp_set_hdr(request, "Content-Disposition", "inline; filename=walldisplay-screenshot.bmp");
     uint8_t buffer[1024];
@@ -226,6 +266,7 @@ static esp_err_t screenshot_http_get(httpd_req_t *request) {
         }
     }
     fclose(file);
+    xSemaphoreGive(s_storage_lock);
     if (result == ESP_OK) {
         result = httpd_resp_send_chunk(request, NULL, 0);
     }
@@ -240,6 +281,9 @@ esp_err_t screenshot_init(const display_board_handle_t *board, screenshot_status
         return ESP_ERR_INVALID_STATE;
     }
 
+    if (!app_config_get()->screenshot_token[0]) return ESP_OK;
+    s_storage_lock = xSemaphoreCreateMutex();
+    ESP_RETURN_ON_FALSE(s_storage_lock != NULL, ESP_ERR_NO_MEM, TAG, "Screenshot mutex allocation failed");
     const esp_vfs_spiffs_conf_t spiffs = {
         .base_path = SCREENSHOT_MOUNT_PATH,
         .partition_label = "storage",
@@ -249,6 +293,20 @@ esp_err_t screenshot_init(const display_board_handle_t *board, screenshot_status
     };
     ESP_RETURN_ON_ERROR(esp_vfs_spiffs_register(&spiffs), TAG, "SPIFFS mount failed");
 
+    /* Captures are transient: remove generated files from previous boots. */
+    DIR *directory = opendir(SCREENSHOT_MOUNT_PATH);
+    if (directory) {
+        struct dirent *entry;
+        while ((entry = readdir(directory)) != NULL) {
+            const char *extension = strrchr(entry->d_name, '.');
+            if (extension && (!strcmp(extension, ".bmp") || !strcmp(extension, ".tmp"))) {
+                char path[300];
+                snprintf(path, sizeof(path), "%s/%s", SCREENSHOT_MOUNT_PATH, entry->d_name);
+                unlink(path);
+            }
+        }
+        closedir(directory);
+    }
     s_board = board;
     s_status_callback = status_callback;
     s_capture_queue = xQueueCreate(1, sizeof(screenshot_request_t));
@@ -275,7 +333,7 @@ esp_err_t screenshot_request(void) {
 }
 
 esp_err_t screenshot_request_named(const char *name) {
-    if (s_capture_queue == NULL) {
+    if (s_capture_queue == NULL || !atomic_load(&s_enabled)) {
         return ESP_ERR_INVALID_STATE;
     }
     if (!valid_screenshot_name(name)) {
@@ -284,4 +342,10 @@ esp_err_t screenshot_request_named(const char *name) {
     screenshot_request_t request = {0};
     strlcpy(request.name, name, sizeof(request.name));
     return xQueueSend(s_capture_queue, &request, 0) == pdPASS ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+
+esp_err_t screenshot_set_enabled(bool enabled) {
+    if (s_capture_queue == NULL) return enabled ? ESP_ERR_INVALID_STATE : ESP_OK;
+    atomic_store(&s_enabled, enabled);
+    return ESP_OK;
 }

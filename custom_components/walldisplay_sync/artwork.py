@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import hashlib
+import time
+from urllib.parse import urlsplit
 import logging
 import secrets
 from io import BytesIO
@@ -32,28 +35,53 @@ class ArtworkCache:
         self.jpeg: bytes | None = None
 
     async def async_update(self, source: str) -> bool:
-        if source == self.source:
-            return self.jpeg is not None
-        self.source = source
-        self.jpeg = None
+        # Increment before awaiting: older downloads cannot overwrite newer intent.
+        self._generation = getattr(self, "_generation", 0) + 1
+        generation = self._generation
+        if source == self.source and self.jpeg is not None and time.monotonic() < getattr(self, "_expires", 0):
+            return True
         if not source:
+            self.source, self.jpeg = "", None
             return False
         try:
+            parsed = urlsplit(source)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+                raise ValueError("Artwork must use an HTTP(S) URL without credentials")
             async with asyncio.timeout(15):
                 async with async_get_clientsession(self.hass).get(source) as response:
                     response.raise_for_status()
-                    data = await response.read()
-            self.jpeg = await self.hass.async_add_executor_job(_jpeg, data)
-        except (ClientError, OSError, UnidentifiedImageError, asyncio.TimeoutError) as err:
-            _LOGGER.debug("Unable to convert panel artwork: %s", err)
-        return self.jpeg is not None
+                    if response.content_length is not None and response.content_length > MAX_ARTWORK_BYTES:
+                        raise ValueError("Artwork response too large")
+                    data = bytearray()
+                    async for chunk in response.content.iter_chunked(65536):
+                        if len(data) + len(chunk) > MAX_ARTWORK_BYTES:
+                            raise ValueError("Artwork response too large")
+                        data.extend(chunk)
+            jpeg = await self.hass.async_add_executor_job(_jpeg, bytes(data))
+            if generation != self._generation:
+                return False
+            self.source, self.jpeg = source, jpeg
+            self._expires = time.monotonic() + 60
+        except (ClientError, OSError, UnidentifiedImageError, ValueError, Image.DecompressionBombError, asyncio.TimeoutError) as err:
+            if generation == self._generation:
+                self.source, self.jpeg = "", None
+            _LOGGER.debug("Unable to convert panel artwork: %s", type(err).__name__)
+            return False
+        return True
 
     def url(self, base_url: str) -> str:
-        return f"{base_url.rstrip('/')}/api/walldisplay_sync/artwork/{self.entry_id}/{self.token}"
+        revision = hashlib.sha256(self.jpeg or b"").hexdigest()[:16]
+        return f"{base_url.rstrip('/')}/api/walldisplay_sync/artwork/{self.entry_id}/{self.token}?v={revision}"
+
+
+MAX_ARTWORK_BYTES = 1024 * 1024
+MAX_ARTWORK_PIXELS = 4096 * 4096
 
 
 def _jpeg(data: bytes) -> bytes:
     with Image.open(BytesIO(data)) as image:
+        if image.width * image.height > MAX_ARTWORK_PIXELS:
+            raise ValueError("Artwork dimensions too large")
         image.thumbnail((480, 480))
         output = BytesIO()
         image.convert("RGB").save(output, "JPEG", quality=85, optimize=True)

@@ -8,6 +8,8 @@
 #include "walldisplay/ota_manager.h"
 #include "walldisplay/screenshot.h"
 #include "walldisplay/ui.h"
+#include "walldisplay/panel_commands.h"
+#include "walldisplay/security_policy.h"
 #include "walldisplay/wifi_manager.h"
 
 #include "cJSON.h"
@@ -47,7 +49,10 @@ static void publish_discovery_if_enabled(esp_mqtt_client_handle_t client) {
     }
 
     ESP_LOGI(TAG, "Publishing Home Assistant discovery");
-    ESP_ERROR_CHECK(ha_discovery_publish_all(client));
+    const esp_err_t err = ha_discovery_publish_all(client);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Home Assistant discovery incomplete: %s; will retry on reconnect", esp_err_to_name(err));
+    }
 }
 
 static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
@@ -113,6 +118,8 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
     snprintf(topic, sizeof(topic), "%s/cmd/screenshot", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
+    snprintf(topic, sizeof(topic), "%s/set/screenshots_enabled", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
     snprintf(topic, sizeof(topic), "%s/set/pages", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
     snprintf(topic, sizeof(topic), "%s/set/grid/+", config->base_topic);
@@ -166,7 +173,7 @@ static void on_mqtt_connected(esp_mqtt_client_handle_t client, void *user_ctx) {
     publish_discovery_if_enabled(client);
     subscribe_runtime_topics(client);
     snprintf(availability_topic, sizeof(availability_topic), "%s/status", config->base_topic);
-    ESP_ERROR_CHECK(mqtt_app_publish(availability_topic, "online", true));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(mqtt_app_publish(availability_topic, "online", true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(ota_manager_mark_running_image_valid());
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/update", "{\"state\":\"idle\",\"version\":\"" APP_FW_VERSION "\"}", true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/contract_version", APP_CONTRACT_VERSION, true));
@@ -181,10 +188,15 @@ static void on_mqtt_connected(esp_mqtt_client_handle_t client, void *user_ctx) {
     ui_set_mqtt_state("MQTT ok");
 }
 
-static void on_mqtt_message(const char *topic, const char *payload, void *user_ctx) {
+static void on_mqtt_message(const char *topic, const char *payload, bool retained, void *user_ctx) {
     LV_UNUSED(user_ctx);
 
     const app_config_t *config = app_config_get();
+    if (mqtt_replayed_command(config->base_topic, topic, retained)) {
+        ESP_LOGW(TAG, "Ignoring retained command");
+        return;
+    }
+
     char expected_topic[APP_TOPIC_MAX_LEN + 32];
 
     ESP_LOGI(TAG, "Panel update received: %s", topic);
@@ -247,6 +259,13 @@ static void on_mqtt_message(const char *topic, const char *payload, void *user_c
         return;
     }
 
+    snprintf(expected_topic, sizeof(expected_topic), "%s/set/screenshots_enabled", config->base_topic);
+    if (strcmp(topic, expected_topic) == 0) {
+        esp_err_t err = ESP_ERR_INVALID_ARG;
+        if (!strcmp(payload, "ON") || !strcmp(payload, "OFF")) err = screenshot_set_enabled(!strcmp(payload, "ON"));
+        ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/screenshots_enabled", err == ESP_OK ? payload : "OFF", true));
+        return;
+    }
     snprintf(expected_topic, sizeof(expected_topic), "%s/set/pages", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
         esp_err_t err = app_config_set_pages(payload);
@@ -380,6 +399,11 @@ static void on_mqtt_message(const char *topic, const char *payload, void *user_c
     snprintf(expected_topic, sizeof(expected_topic), "%s/set/clock", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
         ui_set_clock_text(payload);
+        // Both Home Assistant synchronization paths publish the retained clock
+        // value every minute. Treat that existing sync traffic as a panel-local
+        // heartbeat so a panel that connects after HA's global birth message
+        // still gets a green Home Assistant indicator without a new MQTT topic.
+        ui_set_ha_state("HA ok");
         ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/clock", payload, true));
         return;
     }
@@ -387,6 +411,7 @@ static void on_mqtt_message(const char *topic, const char *payload, void *user_c
     snprintf(expected_topic, sizeof(expected_topic), "%s/state/clock", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
         ui_set_clock_text(payload);
+        ui_set_ha_state("HA ok");
         return;
     }
 
@@ -529,6 +554,7 @@ void app_main(void) {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Screenshot support disabled: %s", esp_err_to_name(err));
     }
+    ui_actions_set_handler(panel_commands_handle, NULL);
     ESP_ERROR_CHECK(ui_init(&board));
     ESP_ERROR_CHECK(display_dimming_init());
     ui_set_connection_status("Connecting Wi-Fi...");

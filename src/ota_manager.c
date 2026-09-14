@@ -1,4 +1,5 @@
 #include "walldisplay/ota_manager.h"
+#include "walldisplay/security_policy.h"
 
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
@@ -6,6 +7,8 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
+#include "sdkconfig.h"
+#include "esp_timer.h"
 #include "mbedtls/md.h"
 
 #include <ctype.h>
@@ -22,6 +25,24 @@
 static const char *TAG = "ota_manager";
 static QueueHandle_t s_request_queue;
 static ota_status_publish_cb_t s_publish_cb;
+static char s_manifest_json[OTA_MANIFEST_MAX_LEN];
+static uint8_t s_download_buffer[OTA_DOWNLOAD_BUFFER_LEN];
+static esp_timer_handle_t s_verify_timer;
+
+static bool signed_updates_enabled(void) {
+#if defined(CONFIG_SECURE_SIGNED_ON_UPDATE) && CONFIG_SECURE_SIGNED_ON_UPDATE
+    return true;
+#else
+    return false;
+#endif
+}
+
+static void verification_timeout(void *arg) {
+    (void)arg;
+    /* A pending image that cannot connect must actually reboot to roll back. */
+    esp_ota_mark_app_invalid_rollback_and_reboot();
+}
+
 
 typedef struct {
     char manifest_url[OTA_URL_MAX_LEN];
@@ -120,6 +141,7 @@ static esp_err_t read_manifest(const char *url, char *buffer, size_t buffer_len)
 }
 
 static esp_err_t parse_manifest(const char *json, ota_manifest_t *manifest) {
+    if (!json_depth_safe(json)) return ESP_ERR_INVALID_RESPONSE;
     cJSON *root = cJSON_Parse(json);
     if (root == NULL) {
         return ESP_ERR_INVALID_RESPONSE;
@@ -181,7 +203,7 @@ static esp_err_t download_firmware(const ota_manifest_t *manifest) {
         return err;
     }
 
-    uint8_t buffer[OTA_DOWNLOAD_BUFFER_LEN];
+    uint8_t *buffer = s_download_buffer;
     uint8_t calculated_sha256[32];
     size_t total = 0;
     mbedtls_md_context_t sha_context;
@@ -194,7 +216,7 @@ static esp_err_t download_firmware(const ota_manifest_t *manifest) {
     while (err == ESP_OK && total < manifest->size) {
         const size_t remaining = manifest->size - total;
         const int received = esp_http_client_read(client, (char *) buffer,
-                                                  remaining < sizeof(buffer) ? remaining : sizeof(buffer));
+                                                  remaining < OTA_DOWNLOAD_BUFFER_LEN ? remaining : OTA_DOWNLOAD_BUFFER_LEN);
         if (received <= 0) {
             err = ESP_ERR_INVALID_SIZE;
             break;
@@ -229,7 +251,7 @@ static esp_err_t download_firmware(const ota_manifest_t *manifest) {
 static void ota_task(void *arg) {
     (void) arg;
     ota_request_t request;
-    char manifest_json[OTA_MANIFEST_MAX_LEN];
+
     ota_manifest_t manifest;
 
     while (true) {
@@ -237,9 +259,9 @@ static void ota_task(void *arg) {
             continue;
         }
         publish_status("checking", "Downloading manifest", NULL);
-        esp_err_t err = read_manifest(request.manifest_url, manifest_json, sizeof(manifest_json));
+        esp_err_t err = read_manifest(request.manifest_url, s_manifest_json, sizeof(s_manifest_json));
         if (err == ESP_OK) {
-            err = parse_manifest(manifest_json, &manifest);
+            err = parse_manifest(s_manifest_json, &manifest);
         }
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Manifest failed: %s", esp_err_to_name(err));
@@ -249,6 +271,7 @@ static void ota_task(void *arg) {
 
         publish_status("installing", "Downloading firmware", manifest.version);
         err = download_firmware(&manifest);
+        ESP_LOGI(TAG, "OTA stack minimum free: %u bytes", (unsigned)uxTaskGetStackHighWaterMark(NULL));
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Firmware update failed: %s", esp_err_to_name(err));
             publish_status("error", "Firmware download or verification failed", manifest.version);
@@ -265,6 +288,14 @@ esp_err_t ota_manager_init(ota_status_publish_cb_t publish_cb) {
         return ESP_ERR_INVALID_ARG;
     }
     s_publish_cb = publish_cb;
+    esp_ota_img_states_t state;
+    if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY) {
+        const esp_timer_create_args_t timer = {.callback = verification_timeout, .name = "ota_verify"};
+        esp_err_t err = esp_timer_create(&timer, &s_verify_timer);
+        if (err != ESP_OK) return err;
+        err = esp_timer_start_once(s_verify_timer, 120ULL * 1000000ULL);
+        if (err != ESP_OK) return err;
+    }
     s_request_queue = xQueueCreate(1, sizeof(ota_request_t));
     if (s_request_queue == NULL) {
         return ESP_ERR_NO_MEM;
@@ -278,6 +309,10 @@ esp_err_t ota_manager_init(ota_status_publish_cb_t publish_cb) {
 }
 
 esp_err_t ota_manager_request(const char *manifest_url) {
+    if (!signed_updates_enabled()) {
+        publish_status("error", "OTA requires a signed-app verification build", NULL);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     if (s_request_queue == NULL || !is_https_url(manifest_url) || strlen(manifest_url) >= OTA_URL_MAX_LEN) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -296,7 +331,9 @@ esp_err_t ota_manager_mark_running_image_valid(void) {
     esp_err_t err = esp_ota_get_state_partition(running, &state);
     if (err == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY) {
         ESP_LOGI(TAG, "Marking verified OTA image valid");
-        return esp_ota_mark_app_valid_cancel_rollback();
+        err = esp_ota_mark_app_valid_cancel_rollback();
+        if (err == ESP_OK && s_verify_timer != NULL) esp_timer_stop(s_verify_timer);
+        return err;
     }
     return err == ESP_ERR_NOT_SUPPORTED ? ESP_OK : err;
 }

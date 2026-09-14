@@ -10,9 +10,10 @@
 #define APP_DEVICE_NAME "Guition Wall Panel"
 #define APP_DEVICE_MODEL "ESP32-4848S040"
 #define APP_MANUFACTURER "Guition"
-#define APP_FW_VERSION "0.6.0"
+/* Generated from pyproject.toml by tools/sync_project_version.py. */
+#define APP_FW_VERSION "1.0.0"
 /* Increment whenever MQTT topics, payloads, or semantics change. */
-#define APP_CONTRACT_VERSION "6"
+#define APP_CONTRACT_VERSION "7"
 
 #define APP_WIFI_MAX_SSID_LEN 32
 #define APP_WIFI_MAX_PASSWORD_LEN 64
@@ -36,6 +37,9 @@ typedef struct {
     char discovery_prefix[APP_TOPIC_MAX_LEN + 1];
     char base_topic[APP_TOPIC_MAX_LEN + 1];
     bool enable_discovery;
+    bool mqtt_require_tls;
+    const char *mqtt_ca_certificate;
+    const char *screenshot_token;
     app_default_page_t default_page;
     panel_layout_t layout;
 } app_config_t;

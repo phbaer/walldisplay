@@ -3,7 +3,10 @@ wifi:
   password: "YOUR_WIFI_PASSWORD"
 
 mqtt:
-  uri: "mqtt://homeassistant.local:1883"
+  require_tls: true
+  # Optional PEM filename in config/; empty uses public CA bundle.
+  ca_certificate_file: ""
+  uri: "mqtts://homeassistant.local:8883"
   username: "mqtt-user"
   password: "mqtt-password"
 
@@ -21,3 +24,7 @@ display:
   weather_title: Weather
   media_title: Media
   buttons_title: Buttons
+
+security:
+  # Generate a distinct token per panel; empty disables the screenshot server.
+  screenshot_token: ""

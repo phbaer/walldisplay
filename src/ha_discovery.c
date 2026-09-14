@@ -2,11 +2,23 @@
 
 #include "walldisplay/app_config.h"
 #include "cJSON.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "ha_discovery";
+
+/* Discovery is replayed when MQTT reconnects.  A connection can disappear
+ * while the retained discovery set is being published; never turn that
+ * transient transport failure into an application abort. */
+#define DISCOVERY_CHECK(expression) do { \
+        const esp_err_t discovery_error = (expression); \
+        if (discovery_error != ESP_OK) { \
+            ESP_LOGW(TAG, "Discovery publish interrupted: %s", esp_err_to_name(discovery_error)); \
+            return discovery_error; \
+        } \
+    } while (0)
 
 static void make_unique_id(char *dest, size_t dest_size, const char *suffix) {
     const app_config_t *config = app_config_get();
@@ -179,21 +191,21 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    ESP_ERROR_CHECK(publish_discovery(client,
+    DISCOVERY_CHECK(publish_discovery(client,
                                       "sensor",
                                       "weather",
                                       "Weather Summary",
                                       NULL,
                                       "state/weather"));
-    ESP_ERROR_CHECK(publish_discovery(client,
+    DISCOVERY_CHECK(publish_discovery(client,
                                       "sensor",
                                       "media",
                                       "Now Playing",
                                       NULL,
                                       "state/media"));
-    ESP_ERROR_CHECK(publish_discovery(client, "text", "name", "Panel Name", "set/name", "state/name"));
-    ESP_ERROR_CHECK(publish_discovery(client, "sensor", "clock", "Panel Time", NULL, "state/clock"));
-    ESP_ERROR_CHECK(publish_discovery(client, "sensor", "date", "Panel Date", NULL, "state/date"));
+    DISCOVERY_CHECK(publish_discovery(client, "text", "name", "Panel Name", "set/name", "state/name"));
+    DISCOVERY_CHECK(publish_discovery(client, "sensor", "clock", "Panel Time", NULL, "state/clock"));
+    DISCOVERY_CHECK(publish_discovery(client, "sensor", "date", "Panel Date", NULL, "state/date"));
     for (int i = 1; i <= 4; ++i) {
         char object_id[32];
         char name[32];
@@ -201,18 +213,18 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
         snprintf(object_id, sizeof(object_id), "chip%d", i);
         snprintf(name, sizeof(name), "Panel Chip %d", i);
         snprintf(state_suffix, sizeof(state_suffix), "state/chip%d", i);
-        ESP_ERROR_CHECK(publish_discovery(client, "sensor", object_id, name, NULL, state_suffix));
+        DISCOVERY_CHECK(publish_discovery(client, "sensor", object_id, name, NULL, state_suffix));
         snprintf(object_id, sizeof(object_id), "chip%d_color", i);
         snprintf(name, sizeof(name), "Panel Chip %d Color", i);
         snprintf(state_suffix, sizeof(state_suffix), "state/chip%d/color", i);
-        ESP_ERROR_CHECK(publish_discovery(client, "sensor", object_id, name, NULL, state_suffix));
+        DISCOVERY_CHECK(publish_discovery(client, "sensor", object_id, name, NULL, state_suffix));
     }
-    ESP_ERROR_CHECK(publish_discovery(client, "button", "sync", "Sync Panel", "cmd/sync", NULL));
-    ESP_ERROR_CHECK(publish_discovery(client, "button", "wake", "Wake Panel", "cmd/wake", NULL));
-    ESP_ERROR_CHECK(publish_discovery(client, "button", "screenshot", "Capture Screenshot", "cmd/screenshot", NULL));
-    ESP_ERROR_CHECK(publish_discovery(client, "text", "base_topic", "Panel MQTT Topic", "cmd/config/base_topic", "state/config/base_topic"));
-    ESP_ERROR_CHECK(ha_discovery_publish_page_options(client));
-    ESP_ERROR_CHECK(publish_discovery(client, "text", "update_manifest", "Panel Update Manifest URL", "cmd/update", NULL));
+    DISCOVERY_CHECK(publish_discovery(client, "button", "sync", "Sync Panel", "cmd/sync", NULL));
+    DISCOVERY_CHECK(publish_discovery(client, "button", "wake", "Wake Panel", "cmd/wake", NULL));
+    DISCOVERY_CHECK(publish_discovery(client, "button", "screenshot", "Capture Screenshot", "cmd/screenshot", NULL));
+    DISCOVERY_CHECK(publish_discovery(client, "text", "base_topic", "Panel MQTT Topic", "cmd/config/base_topic", "state/config/base_topic"));
+    DISCOVERY_CHECK(ha_discovery_publish_page_options(client));
+    DISCOVERY_CHECK(publish_discovery(client, "text", "update_manifest", "Panel Update Manifest URL", "cmd/update", NULL));
 
     for (int i = 1; i <= 5; ++i) {
         char object_id[32];
@@ -222,31 +234,31 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
         snprintf(object_id, sizeof(object_id), "button%d", i);
         snprintf(name, sizeof(name), "Panel Button %d", i);
         snprintf(command_suffix, sizeof(command_suffix), "cmd/button%d", i);
-        ESP_ERROR_CHECK(publish_discovery(client, "button", object_id, name, command_suffix, NULL));
+        DISCOVERY_CHECK(publish_discovery(client, "button", object_id, name, command_suffix, NULL));
 
         snprintf(object_id, sizeof(object_id), "button%d_state", i);
         snprintf(name, sizeof(name), "Panel Button %d State", i);
         snprintf(state_suffix, sizeof(state_suffix), "state/button%d/state", i);
-        ESP_ERROR_CHECK(publish_discovery(client, "sensor", object_id, name, NULL, state_suffix));
+        DISCOVERY_CHECK(publish_discovery(client, "sensor", object_id, name, NULL, state_suffix));
     }
 
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "ip", "IP Address", "ip", NULL, NULL, "mdi:ip-network"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "mac", "Wi-Fi MAC", "mac", NULL, NULL, "mdi:network-outline"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "firmware", "Firmware Version", "firmware_version", NULL, NULL, "mdi:chip"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "blueprint", "Blueprint Version", "blueprint_version", NULL, NULL, "mdi:script-text"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "firmware_contract", "Firmware Contract", "firmware_contract_version", NULL, NULL, "mdi:file-document-check"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "blueprint_contract", "Blueprint Contract", "blueprint_contract_version", NULL, NULL, "mdi:file-document-check"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "contract_match", "Contract Compatible", "contract_match", NULL, NULL, "mdi:check-decagram"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "partition", "Running Partition", "app_partition", NULL, NULL, "mdi:memory"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "reset_reason", "Last Reset Reason", "reset_reason", NULL, NULL, "mdi:restart"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "ssid", "Wi-Fi SSID", "ssid", NULL, NULL, "mdi:wifi"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "bssid", "Wi-Fi BSSID", "wifi_bssid", NULL, NULL, "mdi:wifi-cog"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "channel", "Wi-Fi Channel", "wifi_channel", NULL, NULL, "mdi:wifi"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "rssi", "Wi-Fi Signal", "wifi_rssi", "dBm", "signal_strength", "mdi:wifi"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "uptime", "Uptime", "uptime_s", "s", "duration", "mdi:timer-outline"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "heap", "Free Heap", "free_heap", "B", "data_size", "mdi:memory"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "min_heap", "Minimum Free Heap", "min_free_heap", "B", "data_size", "mdi:memory"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "psram", "Free PSRAM", "free_psram", "B", "data_size", "mdi:memory"));
-    ESP_ERROR_CHECK(publish_device_diagnostic(client, "min_psram", "Minimum Free PSRAM", "min_free_psram", "B", "data_size", "mdi:memory"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "ip", "IP Address", "ip", NULL, NULL, "mdi:ip-network"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "mac", "Wi-Fi MAC", "mac", NULL, NULL, "mdi:network-outline"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "firmware", "Firmware Version", "firmware_version", NULL, NULL, "mdi:chip"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "blueprint", "Blueprint Version", "blueprint_version", NULL, NULL, "mdi:script-text"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "firmware_contract", "Firmware Contract", "firmware_contract_version", NULL, NULL, "mdi:file-document-check"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "blueprint_contract", "Blueprint Contract", "blueprint_contract_version", NULL, NULL, "mdi:file-document-check"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "contract_match", "Contract Compatible", "contract_match", NULL, NULL, "mdi:check-decagram"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "partition", "Running Partition", "app_partition", NULL, NULL, "mdi:memory"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "reset_reason", "Last Reset Reason", "reset_reason", NULL, NULL, "mdi:restart"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "ssid", "Wi-Fi SSID", "ssid", NULL, NULL, "mdi:wifi"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "bssid", "Wi-Fi BSSID", "wifi_bssid", NULL, NULL, "mdi:wifi-cog"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "channel", "Wi-Fi Channel", "wifi_channel", NULL, NULL, "mdi:wifi"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "rssi", "Wi-Fi Signal", "wifi_rssi", "dBm", "signal_strength", "mdi:wifi"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "uptime", "Uptime", "uptime_s", "s", "duration", "mdi:timer-outline"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "heap", "Free Heap", "free_heap", "B", "data_size", "mdi:memory"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "min_heap", "Minimum Free Heap", "min_free_heap", "B", "data_size", "mdi:memory"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "psram", "Free PSRAM", "free_psram", "B", "data_size", "mdi:memory"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "min_psram", "Minimum Free PSRAM", "min_free_psram", "B", "data_size", "mdi:memory"));
     return ESP_OK;
 }

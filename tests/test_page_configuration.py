@@ -63,12 +63,22 @@ class PageConfigurationTests(unittest.TestCase):
             source.write_text(text.replace("page2: media", "page2: weather"))
             self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
 
+    def test_configuration_migration(self):
+        from custom_components.walldisplay_sync.configuration import migrate_configuration
+        data = migrate_configuration({"panel_topic": "panel/test", "grid1_label": "Keep me"})
+        self.assertEqual(data["schema_version"], 2)
+        self.assertEqual(data["grid1_label"], "Keep me")
+        self.assertFalse(data["screenshots_enabled"])
+        self.assertEqual(migrate_configuration(data), data)
+        with self.assertRaises(vol.Invalid):
+            migrate_configuration({"panel_topic": "panel/test", "schema_version": 99})
+
     def test_reject_invalid_configuration(self):
         for change in ({"page2": "weather"}, {"page1": "none", "page2": "none"},
                        {"page1": "buttons", "default_page": "weather"}, {"page1": "camera"},
                        {"weather_title": "é" * 25}, {"grid1_label": "é" * 49},
                        {"grid1_state_entity": "sensor.temperature"}, {"surprise": True},
-                       {"panel_topic": "panel/#"}):
+                       {"panel_topic": "panel/#"}, {"update_api_url": "http://git.example/releases"}):
             with self.subTest(change=change), self.assertRaises((ValueError, vol.Invalid)):
                 _complete_config({"panel_topic": "panel/test", **change})
 
@@ -104,6 +114,15 @@ class PageConfigurationTests(unittest.TestCase):
 
 
 class PageFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_updates_form_schema_is_serializable(self):
+        from voluptuous_serialize import convert
+
+        flow = WallDisplayConfigFlow()
+        flow._data = {"panel_topic": "panel/test"}
+        result = await flow.async_step_updates()
+        self.assertEqual(result["type"], "form")
+        self.assertEqual(convert(result["data_schema"])[0]["type"], "string")
+
     async def test_expanded_blueprint_automation_schema(self):
         from homeassistant.core import HomeAssistant
         from homeassistant.components.automation.config import PLATFORM_SCHEMA
@@ -151,7 +170,7 @@ class GridRuntimeTests(unittest.IsolatedAsyncioTestCase):
                                config_entries=SimpleNamespace(async_forward_entry_setups=AsyncMock()))
         config = _complete_config({"panel_topic": "panel/test", "page1": "buttons", "page2": "none",
                                    "default_page": "buttons", "grid1_label": "Lights",
-                                   "grid1_state_entity": "light.room", "grid2_label": "Scene"})
+                                   "grid1_state_entity": "light.room", "grid2_label": "Scene", "footer1_label": "Footer action"})
         entry = SimpleNamespace(data=config, options={}, title="Room", unique_id="panel/test", entry_id="test",
                                 async_on_unload=Mock(), add_update_listener=Mock())
         subscriptions = {}
@@ -174,6 +193,15 @@ class GridRuntimeTests(unittest.IsolatedAsyncioTestCase):
             entry.runtime_data.events[7] = event  # footer slots 1–5, then grid slot 2
             await subscriptions["panel/test/cmd/grid2"](SimpleNamespace(topic="panel/test/cmd/grid2", payload="press"))
             event.press.assert_called_once()
+            footer = Mock()
+            entry.runtime_data.events[1] = footer
+            footer_callback = subscriptions["panel/test/cmd/button1"]
+            await footer_callback(SimpleNamespace(topic="panel/test/cmd/button1", payload="toggle", retain=True))
+            footer.press.assert_not_called()
+            await footer_callback(SimpleNamespace(topic="panel/test/cmd/button1", payload="toggle", retain=False))
+            footer.press.assert_called_once()
+            await callback(SimpleNamespace(topic="panel/test/cmd/grid1", payload="press", retain=True))
+            self.assertEqual(hass.services.async_call.await_count, 1)
             states["light.room"].state = "unavailable"
             await callback(SimpleNamespace(topic="panel/test/cmd/grid1", payload="press"))
             self.assertEqual(hass.services.async_call.await_count, 1)

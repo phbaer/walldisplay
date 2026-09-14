@@ -94,3 +94,4 @@ use_blueprint:
     button3_action: []
     button4_action: []
     button5_action: []
+    screenshots_enabled: false

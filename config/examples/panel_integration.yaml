@@ -4,6 +4,8 @@ panel_topic: panel/living-room
 panel_name: Living room
 weather_entity: weather.home
 media_entity: media_player.living_room
+# HTTPS Forgejo-compatible release API; empty disables update checks.
+update_api_url: https://git.baer.one/api/v1/repos/phbaer/walldisplay/releases?limit=20
 page1: weather
 page2: media
 page3: buttons
@@ -75,3 +77,5 @@ grid3_state_entity: ''
 grid4_state_entity: ''
 grid5_state_entity: ''
 grid6_state_entity: ''
+screenshots_enabled: false
+schema_version: 2

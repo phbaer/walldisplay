@@ -19,6 +19,7 @@
           "finish": "Finish setup",
           "pages": "Pages and navigation",
           "grid": "Buttons page",
+          "updates": "Firmware updates",
           "yaml": "Copy / paste YAML configuration"
         }
       },
@@ -29,6 +30,13 @@
           "panel_name": "Panel name",
           "media_entity": "Media player",
           "media_power_switch": "Media power switch (optional)"
+        }
+      },
+      "updates": {
+        "title": "Firmware updates",
+        "description": "Use an HTTPS Forgejo-compatible releases API. Leave the default to follow the WallDisplay project releases, or leave it empty to disable update checks.",
+        "data": {
+          "update_api_url": "Firmware release API URL"
         }
       },
       "display": {
@@ -44,7 +52,8 @@
           "time_format": "Clock format",
           "dim_after": "Dim display after (seconds)",
           "screen_off_after": "Turn screen off after dimming (seconds)",
-          "dim_brightness": "Dim brightness (percent)"
+          "dim_brightness": "Dim brightness (percent)",
+          "screenshots_enabled": "Enable authenticated screenshots (requires provisioned token)"
         }
       },
       "favorites": {
@@ -164,6 +173,7 @@
     },
     "error": {
       "invalid_pages": "Select unique pages and an enabled startup page; titles allow 48 UTF-8 bytes.",
+      "invalid_update_api_url": "Enter an HTTPS URL no longer than 512 characters, or leave it empty to disable update checks.",
       "invalid_config": "Check configuration keys, entity IDs, page order, startup page, label lengths, and panel topic. Existing entries must keep their topic."
     }
   },
@@ -180,6 +190,7 @@
           "finish": "Save changes",
           "pages": "Pages and navigation",
           "grid": "Buttons page",
+          "updates": "Firmware updates",
           "yaml": "Copy / paste YAML configuration"
         }
       },
@@ -190,6 +201,13 @@
           "panel_name": "Panel name",
           "media_entity": "Media player",
           "media_power_switch": "Media power switch (optional)"
+        }
+      },
+      "updates": {
+        "title": "Firmware updates",
+        "description": "Use an HTTPS Forgejo-compatible releases API. Leave the default to follow the WallDisplay project releases, or leave it empty to disable update checks.",
+        "data": {
+          "update_api_url": "Firmware release API URL"
         }
       },
       "display": {
@@ -205,7 +223,8 @@
           "time_format": "Clock format",
           "dim_after": "Dim display after (seconds)",
           "screen_off_after": "Turn screen off after dimming (seconds)",
-          "dim_brightness": "Dim brightness (percent)"
+          "dim_brightness": "Dim brightness (percent)",
+          "screenshots_enabled": "Enable authenticated screenshots (requires provisioned token)"
         }
       },
       "favorites": {
@@ -327,6 +346,19 @@
     "error": {
       "invalid_pages": "Select unique pages and an enabled startup page; titles allow 48 UTF-8 bytes.",
       "invalid_config": "Check configuration keys, entity IDs, page order, startup page, label lengths, and panel topic. Existing entries must keep their topic."
+    }
+  },
+  "issues": {
+    "firmware_update_available": {
+      "title": "Firmware update for {panel_name}: {current_version} to {latest_version}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Update {panel_name} from {current_version} to {latest_version}",
+            "description": "A signed WallDisplay firmware update is available.\n\nCurrent firmware: `{current_version}`\nAvailable firmware: `{latest_version}`\n\nConfirm to send the manifest to {panel_name}. The panel will download it over HTTPS, verify the image and signature, then reboot if verification succeeds. The panel must already trust the release signing key and remain powered during the update."
+          }
+        }
+      }
     }
   }
 }

@@ -108,6 +108,17 @@ def main(argv: list[str]) -> int:
         raise ValueError("display titles must be at most 48 UTF-8 bytes")
     layout_json = json.dumps({"pages": pages, "default_page": initial, "titles": titles}, ensure_ascii=False)
 
+    require_tls = config["mqtt"].get("require_tls", True)
+    if not isinstance(require_tls, bool):
+        raise ValueError("mqtt.require_tls must be true or false")
+    ca_file = config["mqtt"].get("ca_certificate_file", "")
+    if ca_file and (not isinstance(ca_file, str) or Path(ca_file).name != ca_file or not ca_file.endswith(".pem")):
+        raise ValueError("mqtt.ca_certificate_file must be a PEM filename in config/")
+    ca_pem = (input_yaml.parent / ca_file).read_text() if ca_file else ""
+    token = config.get("security", {}).get("screenshot_token", "")
+    if token and (not isinstance(token, str) or not 32 <= len(token) <= 64 or not token.isascii() or not token.isalnum()):
+        raise ValueError("security.screenshot_token must be empty or 32–64 ASCII alphanumeric characters")
+
     output = f"""#pragma once
 
 /* Auto-generated from config/panel_config.yaml. Do not edit manually. */
@@ -119,6 +130,9 @@ def main(argv: list[str]) -> int:
 #define APPCFG_DEFAULT_DISCOVERY_PREFIX \"{escape_c_string(str(config['homeassistant']['discovery_prefix']))}\"
 #define APPCFG_DEFAULT_BASE_TOPIC \"{escape_c_string(str(config['homeassistant']['base_topic']))}\"
 #define APPCFG_DEFAULT_ENABLE_DISCOVERY {1 if enable_discovery else 0}
+#define APPCFG_MQTT_REQUIRE_TLS {1 if require_tls else 0}
+#define APPCFG_MQTT_CA_CERTIFICATE {json.dumps(ca_pem)}
+#define APPCFG_SCREENSHOT_TOKEN {json.dumps(token)}
 #define APPCFG_DEFAULT_LAYOUT_JSON "{escape_c_string(layout_json)}"
 """
 

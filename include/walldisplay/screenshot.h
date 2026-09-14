@@ -13,3 +13,5 @@ esp_err_t screenshot_init(const display_board_handle_t *board, screenshot_status
 /* Queue a capture of the currently displayed frame. */
 esp_err_t screenshot_request(void);
 esp_err_t screenshot_request_named(const char *name);
+
+esp_err_t screenshot_set_enabled(bool enabled);

@@ -1,9 +1,6 @@
 [project]
 name = "walldisplay"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.0.0"
+description = "ESP32 wall panel firmware and Home Assistant synchronization tools"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = [
-    "idf>=0.0.1",
-]

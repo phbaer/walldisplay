@@ -43,3 +43,7 @@ managed_components/
 
 # Generated documentation screenshots
 docs/screenshots/
+
+# Signed builds and private signing material
+/build-signed/
+*-signing-key.pem

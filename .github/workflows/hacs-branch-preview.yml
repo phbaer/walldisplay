@@ -3,6 +3,7 @@ name: HACS branch preview
 on:
   push:
     branches: ["**"]
+    tags-ignore: ["**"]
   delete:
 
 permissions:
@@ -15,13 +16,16 @@ env:
 
 jobs:
   publish:
-    if: github.event_name == 'push' && github.ref_name != github.event.repository.default_branch
+    if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - uses: hacs/action@main
+      - name: Synchronize project version
+        run: python tools/sync_project_version.py --check
+      # Pin around the current main-branch manifest-discovery regression.
+      - uses: hacs/action@d556e736723344f83838d08488c983a15381059a # 22.5.0
         with:
           category: integration
           ignore: brands images license topics
@@ -36,14 +40,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release delete "$PREVIEW_TAG" --cleanup-tag --yes || true
       - run: zip -r walldisplay_sync.zip custom_components/walldisplay_sync
-      - uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ env.PREVIEW_TAG }}
-          target_commitish: ${{ github.sha }}
-          name: "WallDisplay Sync branch: ${{ github.ref_name }}"
-          prerelease: true
-          make_latest: false
-          files: walldisplay_sync.zip
+      - name: Publish branch preview release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$PREVIEW_TAG" \
+            --target "$GITHUB_SHA" \
+            --title "WallDisplay Sync branch: $GITHUB_REF_NAME" \
+            --prerelease
+          gh release upload "$PREVIEW_TAG" walldisplay_sync.zip --clobber
 
   cleanup:
     if: github.event_name == 'delete' && github.event.ref_type == 'branch' && github.event.ref != github.event.repository.default_branch

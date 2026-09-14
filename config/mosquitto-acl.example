@@ -1,0 +1,79 @@
+# Example for base topic panel/living-room; use distinct credentials per panel.
+# Replace usernames and exact discovery IDs together when changing the panel topic.
+user panel-living-room
+topic read panel/living-room/set/#
+topic read panel/living-room/state/#
+topic read panel/living-room/cmd/#
+topic read homeassistant/status
+topic write panel/living-room/status
+topic write panel/living-room/state/#
+topic write panel/living-room/cmd/media/#
+topic write panel/living-room/cmd/sync
+topic write panel/living-room/cmd/button1
+topic write panel/living-room/cmd/button2
+topic write panel/living-room/cmd/button3
+topic write panel/living-room/cmd/button4
+topic write panel/living-room/cmd/button5
+topic write panel/living-room/cmd/grid1
+topic write panel/living-room/cmd/grid2
+topic write panel/living-room/cmd/grid3
+topic write panel/living-room/cmd/grid4
+topic write panel/living-room/cmd/grid5
+topic write panel/living-room/cmd/grid6
+
+# Scope discovery publication to this panel, not homeassistant/#.
+topic write homeassistant/button/panel_living_room_button1/config
+topic write homeassistant/button/panel_living_room_button2/config
+topic write homeassistant/button/panel_living_room_button3/config
+topic write homeassistant/button/panel_living_room_button4/config
+topic write homeassistant/button/panel_living_room_button5/config
+topic write homeassistant/button/panel_living_room_screenshot/config
+topic write homeassistant/button/panel_living_room_sync/config
+topic write homeassistant/button/panel_living_room_wake/config
+topic write homeassistant/select/panel_living_room_default_page/config
+topic write homeassistant/sensor/panel_living_room_blueprint/config
+topic write homeassistant/sensor/panel_living_room_blueprint_contract/config
+topic write homeassistant/sensor/panel_living_room_bssid/config
+topic write homeassistant/sensor/panel_living_room_button1_state/config
+topic write homeassistant/sensor/panel_living_room_button2_state/config
+topic write homeassistant/sensor/panel_living_room_button3_state/config
+topic write homeassistant/sensor/panel_living_room_button4_state/config
+topic write homeassistant/sensor/panel_living_room_button5_state/config
+topic write homeassistant/sensor/panel_living_room_channel/config
+topic write homeassistant/sensor/panel_living_room_chip1/config
+topic write homeassistant/sensor/panel_living_room_chip1_color/config
+topic write homeassistant/sensor/panel_living_room_chip2/config
+topic write homeassistant/sensor/panel_living_room_chip2_color/config
+topic write homeassistant/sensor/panel_living_room_chip3/config
+topic write homeassistant/sensor/panel_living_room_chip3_color/config
+topic write homeassistant/sensor/panel_living_room_chip4/config
+topic write homeassistant/sensor/panel_living_room_chip4_color/config
+topic write homeassistant/sensor/panel_living_room_clock/config
+topic write homeassistant/sensor/panel_living_room_contract_match/config
+topic write homeassistant/sensor/panel_living_room_date/config
+topic write homeassistant/sensor/panel_living_room_firmware/config
+topic write homeassistant/sensor/panel_living_room_firmware_contract/config
+topic write homeassistant/sensor/panel_living_room_heap/config
+topic write homeassistant/sensor/panel_living_room_ip/config
+topic write homeassistant/sensor/panel_living_room_mac/config
+topic write homeassistant/sensor/panel_living_room_media/config
+topic write homeassistant/sensor/panel_living_room_min_heap/config
+topic write homeassistant/sensor/panel_living_room_min_psram/config
+topic write homeassistant/sensor/panel_living_room_partition/config
+topic write homeassistant/sensor/panel_living_room_psram/config
+topic write homeassistant/sensor/panel_living_room_reset_reason/config
+topic write homeassistant/sensor/panel_living_room_rssi/config
+topic write homeassistant/sensor/panel_living_room_ssid/config
+topic write homeassistant/sensor/panel_living_room_uptime/config
+topic write homeassistant/sensor/panel_living_room_weather/config
+topic write homeassistant/text/panel_living_room_base_topic/config
+topic write homeassistant/text/panel_living_room_name/config
+topic write homeassistant/text/panel_living_room_update_manifest/config
+
+# Trusted HA controller for this panel. Extend explicitly for other panels.
+user homeassistant-walldisplay
+topic read panel/living-room/#
+topic write panel/living-room/set/#
+topic write panel/living-room/cmd/#
+topic readwrite homeassistant/status
+topic read homeassistant/#
