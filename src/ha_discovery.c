@@ -134,7 +134,7 @@ static esp_err_t publish_device_diagnostic(esp_mqtt_client_handle_t client,
     return message_id < 0 ? ESP_FAIL : ESP_OK;
 }
 
-static esp_err_t publish_default_page_discovery(esp_mqtt_client_handle_t client) {
+esp_err_t ha_discovery_publish_page_options(esp_mqtt_client_handle_t client) {
     const app_config_t *config = app_config_get();
     char object_id[APP_TOPIC_MAX_LEN + 32];
     char topic[(APP_TOPIC_MAX_LEN * 2) + 64];
@@ -154,7 +154,9 @@ static esp_err_t publish_default_page_discovery(esp_mqtt_client_handle_t client)
     cJSON_AddStringToObject(root, "cmd_t", command_topic);
     cJSON_AddStringToObject(root, "stat_t", state_topic);
     cJSON_AddStringToObject(root, "avty_t", availability_topic);
-    cJSON_AddItemToObject(root, "ops", cJSON_CreateStringArray((const char *[]) { "weather", "media" }, 2));
+    const char *options[PANEL_PAGE_COUNT];
+    for (size_t i = 0; i < config->layout.count; ++i) options[i] = panel_page_name(config->layout.order[i]);
+    cJSON_AddItemToObject(root, "ops", cJSON_CreateStringArray(options, (int)config->layout.count));
     cJSON_AddItemToObject(root, "dev", device);
     cJSON_AddStringToObject(device, "name", APP_DEVICE_NAME);
     cJSON_AddStringToObject(device, "mdl", APP_DEVICE_MODEL);
@@ -209,7 +211,7 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
     ESP_ERROR_CHECK(publish_discovery(client, "button", "wake", "Wake Panel", "cmd/wake", NULL));
     ESP_ERROR_CHECK(publish_discovery(client, "button", "screenshot", "Capture Screenshot", "cmd/screenshot", NULL));
     ESP_ERROR_CHECK(publish_discovery(client, "text", "base_topic", "Panel MQTT Topic", "cmd/config/base_topic", "state/config/base_topic"));
-    ESP_ERROR_CHECK(publish_default_page_discovery(client));
+    ESP_ERROR_CHECK(ha_discovery_publish_page_options(client));
     ESP_ERROR_CHECK(publish_discovery(client, "text", "update_manifest", "Panel Update Manifest URL", "cmd/update", NULL));
 
     for (int i = 1; i <= 5; ++i) {

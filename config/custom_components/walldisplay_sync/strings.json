@@ -3,10 +3,9 @@
     "step": {
       "user": {
         "title": "WallDisplay Sync",
-        "data": {
-          "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel name",
-          "media_entity": "Media player"
+        "menu_options": {
+          "guided": "Configure using forms",
+          "yaml": "Paste YAML configuration"
         }
       },
       "configure": {
@@ -17,10 +16,21 @@
           "favorites": "Media favourites",
           "chips": "Measurement chips",
           "footer": "Footer buttons",
-          "finish": "Finish setup"
+          "finish": "Finish setup",
+          "pages": "Pages and navigation",
+          "grid": "Buttons page",
+          "yaml": "Copy / paste YAML configuration"
         }
       },
-      "basic": {"title": "Panel and media player", "data": {"panel_topic": "Panel MQTT topic", "panel_name": "Panel name", "media_entity": "Media player", "media_power_switch": "Media power switch (optional)"}},
+      "basic": {
+        "title": "Panel and media player",
+        "data": {
+          "panel_topic": "Panel MQTT topic",
+          "panel_name": "Panel name",
+          "media_entity": "Media player",
+          "media_power_switch": "Media power switch (optional)"
+        }
+      },
       "display": {
         "title": "Display and weather",
         "data": {
@@ -40,35 +50,121 @@
       "favorites": {
         "title": "Media favourites",
         "data": {
-          "favorite1_label": "Favourite 1 label", "favorite1_icon": "Favourite 1 symbol", "favorite1_payload": "Favourite 1 play-media JSON payload",
-          "favorite2_label": "Favourite 2 label", "favorite2_icon": "Favourite 2 symbol", "favorite2_payload": "Favourite 2 play-media JSON payload",
-          "favorite3_label": "Favourite 3 label", "favorite3_icon": "Favourite 3 symbol", "favorite3_payload": "Favourite 3 play-media JSON payload",
-          "favorite4_label": "Favourite 4 label", "favorite4_icon": "Favourite 4 symbol", "favorite4_payload": "Favourite 4 play-media JSON payload",
-          "favorite5_label": "Favourite 5 label", "favorite5_icon": "Favourite 5 symbol", "favorite5_payload": "Favourite 5 play-media JSON payload"
+          "favorite1_label": "Favourite 1 label",
+          "favorite1_icon": "Favourite 1 symbol",
+          "favorite1_payload": "Favourite 1 play-media JSON payload",
+          "favorite2_label": "Favourite 2 label",
+          "favorite2_icon": "Favourite 2 symbol",
+          "favorite2_payload": "Favourite 2 play-media JSON payload",
+          "favorite3_label": "Favourite 3 label",
+          "favorite3_icon": "Favourite 3 symbol",
+          "favorite3_payload": "Favourite 3 play-media JSON payload",
+          "favorite4_label": "Favourite 4 label",
+          "favorite4_icon": "Favourite 4 symbol",
+          "favorite4_payload": "Favourite 4 play-media JSON payload",
+          "favorite5_label": "Favourite 5 label",
+          "favorite5_icon": "Favourite 5 symbol",
+          "favorite5_payload": "Favourite 5 play-media JSON payload"
         }
       },
-      "chips": {"title": "Measurement chips", "data": {"chip_count": "Number of chips"}},
+      "chips": {
+        "title": "Measurement chips",
+        "data": {
+          "chip_count": "Number of chips"
+        }
+      },
       "chip_fields": {
         "title": "Measurement chips",
         "data": {
-          "chip_ok_color": "Measurement chip normal color", "chip_warn_color": "Measurement chip warning color", "chip_alert_color": "Measurement chip alert color", "chip_neutral_color": "Measurement chip non-numeric color",
-          "chip1_sensor": "Measurement chip 1 entity", "chip1_warn_above": "Measurement chip 1 warning threshold", "chip1_alert_above": "Measurement chip 1 alert threshold",
-          "chip2_sensor": "Measurement chip 2 entity", "chip2_warn_above": "Measurement chip 2 warning threshold", "chip2_alert_above": "Measurement chip 2 alert threshold",
-          "chip3_sensor": "Measurement chip 3 entity", "chip3_warn_above": "Measurement chip 3 warning threshold", "chip3_alert_above": "Measurement chip 3 alert threshold",
-          "chip4_sensor": "Measurement chip 4 entity", "chip4_warn_above": "Measurement chip 4 warning threshold", "chip4_alert_above": "Measurement chip 4 alert threshold"
+          "chip_ok_color": "Measurement chip normal color",
+          "chip_warn_color": "Measurement chip warning color",
+          "chip_alert_color": "Measurement chip alert color",
+          "chip_neutral_color": "Measurement chip non-numeric color",
+          "chip1_sensor": "Measurement chip 1 entity",
+          "chip1_warn_above": "Measurement chip 1 warning threshold",
+          "chip1_alert_above": "Measurement chip 1 alert threshold",
+          "chip2_sensor": "Measurement chip 2 entity",
+          "chip2_warn_above": "Measurement chip 2 warning threshold",
+          "chip2_alert_above": "Measurement chip 2 alert threshold",
+          "chip3_sensor": "Measurement chip 3 entity",
+          "chip3_warn_above": "Measurement chip 3 warning threshold",
+          "chip3_alert_above": "Measurement chip 3 alert threshold",
+          "chip4_sensor": "Measurement chip 4 entity",
+          "chip4_warn_above": "Measurement chip 4 warning threshold",
+          "chip4_alert_above": "Measurement chip 4 alert threshold"
         }
       },
-      "footer": {"title": "Footer buttons", "data": {"footer_count": "Number of footer buttons"}},
+      "footer": {
+        "title": "Footer buttons",
+        "data": {
+          "footer_count": "Number of footer buttons"
+        }
+      },
       "footer_fields": {
         "title": "Footer buttons",
         "data": {
-          "footer1_label": "Footer button 1 label", "footer1_state_entity": "Footer button 1 state entity (optional)",
-          "footer2_label": "Footer button 2 label", "footer2_state_entity": "Footer button 2 state entity (optional)",
-          "footer3_label": "Footer button 3 label", "footer3_state_entity": "Footer button 3 state entity (optional)",
-          "footer4_label": "Footer button 4 label", "footer4_state_entity": "Footer button 4 state entity (optional)",
-          "footer5_label": "Footer button 5 label", "footer5_state_entity": "Footer button 5 state entity (optional)"
+          "footer1_label": "Footer button 1 label",
+          "footer1_state_entity": "Footer button 1 state entity (optional)",
+          "footer2_label": "Footer button 2 label",
+          "footer2_state_entity": "Footer button 2 state entity (optional)",
+          "footer3_label": "Footer button 3 label",
+          "footer3_state_entity": "Footer button 3 state entity (optional)",
+          "footer4_label": "Footer button 4 label",
+          "footer4_state_entity": "Footer button 4 state entity (optional)",
+          "footer5_label": "Footer button 5 label",
+          "footer5_state_entity": "Footer button 5 state entity (optional)"
+        }
+      },
+      "guided": {
+        "title": "WallDisplay Sync",
+        "data": {
+          "panel_topic": "Panel MQTT topic",
+          "panel_name": "Panel name",
+          "media_entity": "Media player"
+        }
+      },
+      "pages": {
+        "title": "Pages and navigation",
+        "description": "Choose each page once, in order. Use none to disable a slot. The default page must be enabled. Titles allow 48 UTF-8 bytes.",
+        "data": {
+          "page1": "Page slot 1",
+          "page2": "Page slot 2",
+          "page3": "Page slot 3",
+          "default_page": "Startup page",
+          "weather_title": "Weather title",
+          "media_title": "Media title",
+          "buttons_title": "Buttons title"
+        }
+      },
+      "grid": {
+        "title": "Buttons page",
+        "description": "Six independent controls. Empty labels hide controls. With no state entity, use the Buttons Page event entity in an automation.",
+        "data": {
+          "grid1_label": "Button 1 label",
+          "grid1_state_entity": "Button 1 toggle entity (optional)",
+          "grid2_label": "Button 2 label",
+          "grid2_state_entity": "Button 2 toggle entity (optional)",
+          "grid3_label": "Button 3 label",
+          "grid3_state_entity": "Button 3 toggle entity (optional)",
+          "grid4_label": "Button 4 label",
+          "grid4_state_entity": "Button 4 toggle entity (optional)",
+          "grid5_label": "Button 5 label",
+          "grid5_state_entity": "Button 5 toggle entity (optional)",
+          "grid6_label": "Button 6 label",
+          "grid6_state_entity": "Button 6 toggle entity (optional)"
+        }
+      },
+      "yaml": {
+        "title": "Copy / paste YAML configuration",
+        "description": "Copy this complete mapping as YAML or paste a replacement. Forms edit the same values. Save with Finish setup. Panel MQTT topic cannot change for an existing entry.",
+        "data": {
+          "configuration": "Complete configuration"
         }
       }
+    },
+    "error": {
+      "invalid_pages": "Select unique pages and an enabled startup page; titles allow 48 UTF-8 bytes.",
+      "invalid_config": "Check configuration keys, entity IDs, page order, startup page, label lengths, and panel topic. Existing entries must keep their topic."
     }
   },
   "options": {
@@ -81,16 +177,156 @@
           "favorites": "Media favourites",
           "chips": "Measurement chips",
           "footer": "Footer buttons",
-          "finish": "Save changes"
+          "finish": "Save changes",
+          "pages": "Pages and navigation",
+          "grid": "Buttons page",
+          "yaml": "Copy / paste YAML configuration"
         }
       },
-      "basic": {"title": "Panel and media player", "data": {"panel_topic": "Panel MQTT topic", "panel_name": "Panel name", "media_entity": "Media player", "media_power_switch": "Media power switch (optional)"}},
-      "display": {"title": "Display and weather", "data": {"weather_entity": "Weather entity (optional)", "temperature_entity": "Temperature sensor (optional)", "humidity_entity": "Humidity sensor (optional)", "pressure_entity": "Pressure sensor (optional)", "wind_speed_entity": "Wind speed sensor (optional)", "rainfall_entity": "Rainfall sensor (optional)", "irradiance_entity": "Solar irradiance sensor (optional)", "time_format": "Clock format", "dim_after": "Dim display after (seconds)", "screen_off_after": "Turn screen off after dimming (seconds)", "dim_brightness": "Dim brightness (percent)"}},
-      "favorites": {"title": "Media favourites", "data": {"favorite1_label": "Favourite 1 label", "favorite1_icon": "Favourite 1 symbol", "favorite1_payload": "Favourite 1 play-media JSON payload", "favorite2_label": "Favourite 2 label", "favorite2_icon": "Favourite 2 symbol", "favorite2_payload": "Favourite 2 play-media JSON payload", "favorite3_label": "Favourite 3 label", "favorite3_icon": "Favourite 3 symbol", "favorite3_payload": "Favourite 3 play-media JSON payload", "favorite4_label": "Favourite 4 label", "favorite4_icon": "Favourite 4 symbol", "favorite4_payload": "Favourite 4 play-media JSON payload", "favorite5_label": "Favourite 5 label", "favorite5_icon": "Favourite 5 symbol", "favorite5_payload": "Favourite 5 play-media JSON payload"}},
-      "chips": {"title": "Measurement chips", "data": {"chip_count": "Number of chips"}},
-      "chip_fields": {"title": "Measurement chips", "data": {"chip_ok_color": "Measurement chip normal color", "chip_warn_color": "Measurement chip warning color", "chip_alert_color": "Measurement chip alert color", "chip_neutral_color": "Measurement chip non-numeric color", "chip1_sensor": "Measurement chip 1 entity", "chip1_warn_above": "Measurement chip 1 warning threshold", "chip1_alert_above": "Measurement chip 1 alert threshold", "chip2_sensor": "Measurement chip 2 entity", "chip2_warn_above": "Measurement chip 2 warning threshold", "chip2_alert_above": "Measurement chip 2 alert threshold", "chip3_sensor": "Measurement chip 3 entity", "chip3_warn_above": "Measurement chip 3 warning threshold", "chip3_alert_above": "Measurement chip 3 alert threshold", "chip4_sensor": "Measurement chip 4 entity", "chip4_warn_above": "Measurement chip 4 warning threshold", "chip4_alert_above": "Measurement chip 4 alert threshold"}},
-      "footer": {"title": "Footer buttons", "data": {"footer_count": "Number of footer buttons"}},
-      "footer_fields": {"title": "Footer buttons", "data": {"footer1_label": "Footer button 1 label", "footer1_state_entity": "Footer button 1 state entity (optional)", "footer2_label": "Footer button 2 label", "footer2_state_entity": "Footer button 2 state entity (optional)", "footer3_label": "Footer button 3 label", "footer3_state_entity": "Footer button 3 state entity (optional)", "footer4_label": "Footer button 4 label", "footer4_state_entity": "Footer button 4 state entity (optional)", "footer5_label": "Footer button 5 label", "footer5_state_entity": "Footer button 5 state entity (optional)"}}
+      "basic": {
+        "title": "Panel and media player",
+        "data": {
+          "panel_topic": "Panel MQTT topic",
+          "panel_name": "Panel name",
+          "media_entity": "Media player",
+          "media_power_switch": "Media power switch (optional)"
+        }
+      },
+      "display": {
+        "title": "Display and weather",
+        "data": {
+          "weather_entity": "Weather entity (optional)",
+          "temperature_entity": "Temperature sensor (optional)",
+          "humidity_entity": "Humidity sensor (optional)",
+          "pressure_entity": "Pressure sensor (optional)",
+          "wind_speed_entity": "Wind speed sensor (optional)",
+          "rainfall_entity": "Rainfall sensor (optional)",
+          "irradiance_entity": "Solar irradiance sensor (optional)",
+          "time_format": "Clock format",
+          "dim_after": "Dim display after (seconds)",
+          "screen_off_after": "Turn screen off after dimming (seconds)",
+          "dim_brightness": "Dim brightness (percent)"
+        }
+      },
+      "favorites": {
+        "title": "Media favourites",
+        "data": {
+          "favorite1_label": "Favourite 1 label",
+          "favorite1_icon": "Favourite 1 symbol",
+          "favorite1_payload": "Favourite 1 play-media JSON payload",
+          "favorite2_label": "Favourite 2 label",
+          "favorite2_icon": "Favourite 2 symbol",
+          "favorite2_payload": "Favourite 2 play-media JSON payload",
+          "favorite3_label": "Favourite 3 label",
+          "favorite3_icon": "Favourite 3 symbol",
+          "favorite3_payload": "Favourite 3 play-media JSON payload",
+          "favorite4_label": "Favourite 4 label",
+          "favorite4_icon": "Favourite 4 symbol",
+          "favorite4_payload": "Favourite 4 play-media JSON payload",
+          "favorite5_label": "Favourite 5 label",
+          "favorite5_icon": "Favourite 5 symbol",
+          "favorite5_payload": "Favourite 5 play-media JSON payload"
+        }
+      },
+      "chips": {
+        "title": "Measurement chips",
+        "data": {
+          "chip_count": "Number of chips"
+        }
+      },
+      "chip_fields": {
+        "title": "Measurement chips",
+        "data": {
+          "chip_ok_color": "Measurement chip normal color",
+          "chip_warn_color": "Measurement chip warning color",
+          "chip_alert_color": "Measurement chip alert color",
+          "chip_neutral_color": "Measurement chip non-numeric color",
+          "chip1_sensor": "Measurement chip 1 entity",
+          "chip1_warn_above": "Measurement chip 1 warning threshold",
+          "chip1_alert_above": "Measurement chip 1 alert threshold",
+          "chip2_sensor": "Measurement chip 2 entity",
+          "chip2_warn_above": "Measurement chip 2 warning threshold",
+          "chip2_alert_above": "Measurement chip 2 alert threshold",
+          "chip3_sensor": "Measurement chip 3 entity",
+          "chip3_warn_above": "Measurement chip 3 warning threshold",
+          "chip3_alert_above": "Measurement chip 3 alert threshold",
+          "chip4_sensor": "Measurement chip 4 entity",
+          "chip4_warn_above": "Measurement chip 4 warning threshold",
+          "chip4_alert_above": "Measurement chip 4 alert threshold"
+        }
+      },
+      "footer": {
+        "title": "Footer buttons",
+        "data": {
+          "footer_count": "Number of footer buttons"
+        }
+      },
+      "footer_fields": {
+        "title": "Footer buttons",
+        "data": {
+          "footer1_label": "Footer button 1 label",
+          "footer1_state_entity": "Footer button 1 state entity (optional)",
+          "footer2_label": "Footer button 2 label",
+          "footer2_state_entity": "Footer button 2 state entity (optional)",
+          "footer3_label": "Footer button 3 label",
+          "footer3_state_entity": "Footer button 3 state entity (optional)",
+          "footer4_label": "Footer button 4 label",
+          "footer4_state_entity": "Footer button 4 state entity (optional)",
+          "footer5_label": "Footer button 5 label",
+          "footer5_state_entity": "Footer button 5 state entity (optional)"
+        }
+      },
+      "guided": {
+        "title": "Panel and media player",
+        "data": {
+          "panel_topic": "Panel MQTT topic",
+          "panel_name": "Panel name",
+          "media_entity": "Media player",
+          "media_power_switch": "Media power switch (optional)"
+        }
+      },
+      "pages": {
+        "title": "Pages and navigation",
+        "description": "Choose each page once, in order. Use none to disable a slot. The default page must be enabled. Titles allow 48 UTF-8 bytes.",
+        "data": {
+          "page1": "Page slot 1",
+          "page2": "Page slot 2",
+          "page3": "Page slot 3",
+          "default_page": "Startup page",
+          "weather_title": "Weather title",
+          "media_title": "Media title",
+          "buttons_title": "Buttons title"
+        }
+      },
+      "grid": {
+        "title": "Buttons page",
+        "description": "Six independent controls. Empty labels hide controls. With no state entity, use the Buttons Page event entity in an automation.",
+        "data": {
+          "grid1_label": "Button 1 label",
+          "grid1_state_entity": "Button 1 toggle entity (optional)",
+          "grid2_label": "Button 2 label",
+          "grid2_state_entity": "Button 2 toggle entity (optional)",
+          "grid3_label": "Button 3 label",
+          "grid3_state_entity": "Button 3 toggle entity (optional)",
+          "grid4_label": "Button 4 label",
+          "grid4_state_entity": "Button 4 toggle entity (optional)",
+          "grid5_label": "Button 5 label",
+          "grid5_state_entity": "Button 5 toggle entity (optional)",
+          "grid6_label": "Button 6 label",
+          "grid6_state_entity": "Button 6 toggle entity (optional)"
+        }
+      },
+      "yaml": {
+        "title": "Copy / paste YAML configuration",
+        "description": "Copy this complete mapping as YAML or paste a replacement. Forms edit the same values. Save with Finish setup. Panel MQTT topic cannot change for an existing entry.",
+        "data": {
+          "configuration": "Complete configuration"
+        }
+      }
+    },
+    "error": {
+      "invalid_pages": "Select unique pages and an enabled startup page; titles allow 48 UTF-8 bytes.",
+      "invalid_config": "Check configuration keys, entity IDs, page order, startup page, label lengths, and panel topic. Existing entries must keep their topic."
     }
   }
 }

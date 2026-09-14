@@ -18,4 +18,4 @@ class WallDisplayRuntime:
     def fire_footer_button(self, slot: int) -> None:
         event = self.events.get(slot)
         if event is not None:
-            event.async_set_event_type("pressed")
+            event.press()
