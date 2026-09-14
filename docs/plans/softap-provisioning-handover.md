@@ -52,7 +52,7 @@ Do not make MQTT a prerequisite for initial provisioning. The panel must be able
 
 ## Implementation order
 
-1. Create a feature branch from the merged current release and record its one selected firmware/blueprint version. Retain MQTT contract `7` unless the design adds MQTT provisioning topics, in which case select the next contract version once and keep it for the branch.
+1. Create a feature branch from the merged current release and record its one selected firmware/blueprint version. The onboarding branch uses firmware/blueprint `1.1.0` and MQTT contract `10`; retain these values for every commit in the branch.
 2. Add and pin `espressif/network_provisioning` in `src/idf_component.yml`; enable only the required protocomm security scheme(s), with Security 2 preferred for production.
 3. Extend `app_config` with bounded provisioning records, migration/default handling, transactional writes, and a clear/reset operation. Add native tests for reboot, failed commit, invalid input, and precedence.
 4. Refactor `wifi_manager` startup into explicit states: provisioned station, provisioning AP, connection test, and rollback. Ensure MQTT and OTA tasks cannot start with incomplete credentials.
