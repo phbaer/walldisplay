@@ -20,6 +20,7 @@ from .const import (
     CONF_MEDIA_ENTITY,
     CONF_MEDIA_POWER_SWITCH,
     CONF_PANEL_NAME,
+    CONF_PANEL_HOSTNAME,
     CONF_PANEL_TOPIC,
     CONF_WEATHER_ENTITY,
     CONF_TEMPERATURE_ENTITY,
@@ -81,6 +82,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     config = migrate_configuration({**entry.data, **entry.options})
     topic = config[CONF_PANEL_TOPIC].rstrip("/")
     panel_name = config.get(CONF_PANEL_NAME, "") or entry.title
+    panel_hostname = config.get(CONF_PANEL_HOSTNAME, "")
     entity_id = config.get(CONF_MEDIA_ENTITY, "")
     power_switch = config.get(CONF_MEDIA_POWER_SWITCH, "")
     weather_entity = config.get(CONF_WEATHER_ENTITY, "")

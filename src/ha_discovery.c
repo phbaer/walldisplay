@@ -204,6 +204,7 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
                                       NULL,
                                       "state/media"));
     DISCOVERY_CHECK(publish_discovery(client, "text", "name", "Panel Name", "set/name", "state/name"));
+    DISCOVERY_CHECK(publish_discovery(client, "sensor", "hostname", "Panel Hostname", NULL, "state/hostname"));
     DISCOVERY_CHECK(publish_discovery(client, "sensor", "clock", "Panel Time", NULL, "state/clock"));
     DISCOVERY_CHECK(publish_discovery(client, "sensor", "date", "Panel Date", NULL, "state/date"));
     for (int i = 1; i <= 4; ++i) {

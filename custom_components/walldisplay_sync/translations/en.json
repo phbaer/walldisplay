@@ -27,7 +27,7 @@
         "title": "Panel and media player",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel hostname",
+          "panel_name": "Panel display name",
           "media_entity": "Media player",
           "media_power_switch": "Media power switch (optional)"
         }
@@ -128,7 +128,7 @@
         "title": "WallDisplay Sync",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel hostname",
+          "panel_name": "Panel display name",
           "media_entity": "Media player"
         }
       },
@@ -202,7 +202,7 @@
         "title": "Panel and media player",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel hostname",
+          "panel_name": "Panel display name",
           "media_entity": "Media player",
           "media_power_switch": "Media power switch (optional)"
         }
@@ -303,7 +303,7 @@
         "title": "Panel and media player",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel hostname",
+          "panel_name": "Panel display name",
           "media_entity": "Media player",
           "media_power_switch": "Media power switch (optional)"
         }

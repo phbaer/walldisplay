@@ -109,3 +109,12 @@ esp_err_t wifi_manager_set_hostname(const char *hostname) {
     }
     return esp_netif_set_hostname(s_sta_netif, hostname);
 }
+
+esp_err_t wifi_manager_set_display_name(const char *display_name) {
+    char hostname[33];
+    esp_err_t err = app_config_display_hostname(display_name, hostname, sizeof(hostname));
+    if (err != ESP_OK) return err;
+    err = app_config_set_display_name(display_name);
+    if (err != ESP_OK) return err;
+    return wifi_manager_set_hostname(hostname);
+}

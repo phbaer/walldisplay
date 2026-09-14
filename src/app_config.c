@@ -22,6 +22,7 @@ static const app_config_t s_default_config = {
     .mqtt_password = APPCFG_DEFAULT_MQTT_PASSWORD,
     .discovery_prefix = APPCFG_DEFAULT_DISCOVERY_PREFIX,
     .base_topic = APPCFG_DEFAULT_BASE_TOPIC,
+    .display_name = "WallDisplay",
     .enable_discovery = APPCFG_DEFAULT_ENABLE_DISCOVERY,
     .mqtt_require_tls = APPCFG_MQTT_REQUIRE_TLS,
     .mqtt_ca_certificate = APPCFG_MQTT_CA_CERTIFICATE,
@@ -70,6 +71,7 @@ esp_err_t app_config_init(void) {
             load_string_or_default(nvs_handle, "mqtt_pass", s_app_config.mqtt_password, sizeof(s_app_config.mqtt_password), s_default_config.mqtt_password);
             load_string_or_default(nvs_handle, "disc_pref", s_app_config.discovery_prefix, sizeof(s_app_config.discovery_prefix), s_default_config.discovery_prefix);
             load_string_or_default(nvs_handle, "base_topic", s_app_config.base_topic, sizeof(s_app_config.base_topic), s_default_config.base_topic);
+            load_string_or_default(nvs_handle, "display_name", s_app_config.display_name, sizeof(s_app_config.display_name), s_default_config.display_name);
 
             uint8_t enable_discovery = s_default_config.enable_discovery;
             if (nvs_get_u8(nvs_handle, "discovery", &enable_discovery) == ESP_OK) {
@@ -84,6 +86,8 @@ esp_err_t app_config_init(void) {
     if (ret == ESP_OK) {
         size_t required_size = sizeof(s_app_config.base_topic);
         nvs_get_str(nvs_handle, "base_topic", s_app_config.base_topic, &required_size);
+        required_size = sizeof(s_app_config.display_name);
+        nvs_get_str(nvs_handle, "display_name", s_app_config.display_name, &required_size);
         uint8_t default_page;
         if (nvs_get_u8(nvs_handle, "default_page", &default_page) == ESP_OK && default_page < PANEL_PAGE_COUNT &&
             panel_layout_contains(&s_app_config.layout, (panel_page_id_t)default_page)) {
@@ -140,6 +144,41 @@ esp_err_t app_config_set_base_topic(const char *base_topic) {
 
     strlcpy(s_app_config.base_topic, base_topic, sizeof(s_app_config.base_topic));
     ESP_LOGI(TAG, "Base topic updated to '%s'", s_app_config.base_topic);
+    return ESP_OK;
+}
+
+esp_err_t app_config_set_display_name(const char *display_name) {
+    if (display_name == NULL) return ESP_ERR_INVALID_ARG;
+    const size_t length = strnlen(display_name, APP_DISPLAY_NAME_MAX_LEN + 1);
+    if (length == 0 || length > APP_DISPLAY_NAME_MAX_LEN) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < length; ++i) {
+        if ((unsigned char) display_name[i] < 0x20 || display_name[i] == 0x7f) return ESP_ERR_INVALID_ARG;
+    }
+    nvs_handle_t handle;
+    ESP_RETURN_ON_ERROR(nvs_open(RUNTIME_CONFIG_NAMESPACE, NVS_READWRITE, &handle), TAG, "Open display config");
+    esp_err_t ret = nvs_set_str(handle, "display_name", display_name);
+    if (ret == ESP_OK) ret = nvs_commit(handle);
+    nvs_close(handle);
+    if (ret != ESP_OK) return ret;
+    strlcpy(s_app_config.display_name, display_name, sizeof(s_app_config.display_name));
+    return ESP_OK;
+}
+
+esp_err_t app_config_display_hostname(const char *display_name, char *hostname, size_t hostname_size) {
+    if (display_name == NULL || hostname == NULL || hostname_size < 2) return ESP_ERR_INVALID_ARG;
+    size_t out = 0;
+    bool dash = false;
+    for (size_t i = 0; display_name[i] != '\0' && out + 1 < hostname_size; ++i) {
+        const unsigned char c = (unsigned char) display_name[i];
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+            hostname[out++] = (char) ((c >= 'A' && c <= 'Z') ? c + ('a' - 'A') : c);
+            dash = false;
+        }
+        else if (!dash && out > 0) { hostname[out++] = '-'; dash = true; }
+    }
+    while (out > 0 && hostname[out - 1] == '-') out--;
+    hostname[out] = '\0';
+    if (out == 0) return ESP_ERR_INVALID_ARG;
     return ESP_OK;
 }
 

@@ -87,6 +87,8 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
 
     snprintf(topic, sizeof(topic), "%s/state/name", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
+    snprintf(topic, sizeof(topic), "%s/state/hostname", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
 
     snprintf(topic, sizeof(topic), "%s/set/clock", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
@@ -178,6 +180,10 @@ static void on_mqtt_connected(esp_mqtt_client_handle_t client, void *user_ctx) {
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/update", "{\"state\":\"idle\",\"version\":\"" APP_FW_VERSION "\"}", true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/contract_version", APP_CONTRACT_VERSION, true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/base_topic", config->base_topic, true));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/name", config->display_name, true));
+    char hostname[33];
+    if (app_config_display_hostname(config->display_name, hostname, sizeof(hostname)) == ESP_OK)
+        ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/hostname", hostname, true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/default_page", app_config_default_page_name(config->default_page), true));
     char layout_json[PANEL_LAYOUT_JSON_SIZE];
     if (panel_layout_json(&config->layout, layout_json, sizeof(layout_json)))
@@ -386,18 +392,21 @@ static void on_mqtt_message(const char *topic, const char *payload, bool retaine
 
     snprintf(expected_topic, sizeof(expected_topic), "%s/set/name", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
-        if (wifi_manager_set_hostname(payload) == ESP_OK) {
+        if (wifi_manager_set_display_name(payload) == ESP_OK) {
             ui_set_title_text(payload);
             ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/name", payload, true));
+            char hostname[33];
+            if (app_config_display_hostname(payload, hostname, sizeof(hostname)) == ESP_OK)
+                ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/hostname", hostname, true));
         } else {
-            ESP_LOGW(TAG, "Ignoring invalid panel hostname");
+            ESP_LOGW(TAG, "Ignoring invalid display name");
         }
         return;
     }
 
     snprintf(expected_topic, sizeof(expected_topic), "%s/state/name", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
-        if (wifi_manager_set_hostname(payload) == ESP_OK) {
+        if (wifi_manager_set_display_name(payload) == ESP_OK) {
             ui_set_title_text(payload);
         } else {
             ESP_LOGW(TAG, "Ignoring invalid retained panel hostname");
@@ -577,6 +586,11 @@ void app_main(void) {
         ui_set_connection_status("Wi-Fi not configured");
         ui_set_wifi_state("WiFi off");
         return;
+    }
+
+    if (app_config_get()->display_name[0] != '\0') {
+        (void) wifi_manager_set_display_name(app_config_get()->display_name);
+        ui_set_title_text(app_config_get()->display_name);
     }
 
     ui_set_wifi_state("WiFi ok");
