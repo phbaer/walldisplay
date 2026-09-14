@@ -4,7 +4,7 @@ from __future__ import annotations
 import voluptuous as vol
 from homeassistant.helpers import selector
 
-from .pages import GRID_COUNT, PAGE_NAMES, layout_payload
+from .pages import DEFAULT_PAGE_SLOTS, GRID_COUNT, MAX_PAGE_SLOTS, PAGE_NAMES, layout_payload
 
 from .const import (
     CHIP_COUNT,
@@ -45,6 +45,27 @@ from .const import (
 _FAVORITE_ICONS = ["none", "radio", "music", "album", "playlist", "podcast"]
 
 
+def _panel_hostname(value: object) -> str:
+    """Validate the panel name as the ESP32's single-label hostname."""
+    hostname = str(value).strip().lower()
+    if not hostname or len(hostname) > 32 or not hostname.isascii():
+        raise vol.Invalid("Panel hostname must be 1-32 ASCII characters")
+    if hostname[0] == "-" or hostname[-1] == "-":
+        raise vol.Invalid("Panel hostname cannot start or end with a hyphen")
+    if any(char not in "abcdefghijklmnopqrstuvwxyz0123456789-" for char in hostname):
+        raise vol.Invalid("Panel hostname may contain only letters, numbers, and hyphens")
+    return hostname
+
+
+def _hostname_from_topic(value: object) -> str:
+    """Create a safe migration fallback for older human-readable names."""
+    topic = str(value).strip().rstrip("/")
+    candidate = topic.rsplit("/", 1)[-1].lower()
+    candidate = "".join(char if char.isascii() and (char.isalnum() or char == "-") else "-" for char in candidate)
+    candidate = candidate[:32].strip("-")
+    return candidate or "walldisplay"
+
+
 def _update_api_url(value):
     value = str(value).strip()
     if value and (not value.startswith("https://") or len(value) > 512):
@@ -71,7 +92,7 @@ def _merge_form(data, user_input, schema):
 def _basic_schema(defaults: dict[str, object]) -> vol.Schema:
     return _form_schema({
         vol.Required(CONF_PANEL_TOPIC, default=defaults.get(CONF_PANEL_TOPIC, "")): str,
-        vol.Optional(CONF_PANEL_NAME, default=defaults.get(CONF_PANEL_NAME, "")): str,
+        vol.Optional(CONF_PANEL_NAME, default=defaults.get(CONF_PANEL_NAME, "walldisplay")): str,
         vol.Optional(CONF_MEDIA_ENTITY, default=defaults.get(CONF_MEDIA_ENTITY, "")): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="media_player")
         ),
@@ -178,7 +199,7 @@ def _clear_unselected(data: dict[str, object], maximum: int, count: int, keys: t
 
 def _pages_schema(defaults):
     fields = {}
-    for slot, initial in enumerate(("weather", "media", "none"), 1):
+    for slot, initial in enumerate(DEFAULT_PAGE_SLOTS, 1):
         key = f"page{slot}"
         fields[vol.Optional(key, default=defaults.get(key, initial))] = selector.SelectSelector(
             selector.SelectSelectorConfig(options=[*PAGE_NAMES, "none"]))
@@ -216,6 +237,10 @@ def _complete_config(value):
     if not topic or len(topic) > 128 or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/_-" for c in topic):
         raise vol.Invalid("Invalid panel topic")
     data[CONF_PANEL_TOPIC] = topic
+    try:
+        data[CONF_PANEL_NAME] = _panel_hostname(data.get(CONF_PANEL_NAME, ""))
+    except vol.Invalid:
+        raise
     layout_payload(data)
     for slot in range(1, GRID_COUNT + 1):
         if len(data[f"grid{slot}_label"].encode("utf-8")) > 96:
@@ -231,4 +256,12 @@ def migrate_configuration(value):
         data["schema_version"] = 2
     elif version != 2:
         raise vol.Invalid("Unsupported configuration schema version")
+    if data.get(CONF_PANEL_NAME):
+        try:
+            _panel_hostname(data[CONF_PANEL_NAME])
+        except vol.Invalid:
+            # Versions before hostname semantics allowed labels such as
+            # "Living room". Keep those entries loadable while steering the
+            # saved value to the panel topic's stable hostname.
+            data[CONF_PANEL_NAME] = _hostname_from_topic(data.get(CONF_PANEL_TOPIC, ""))
     return _complete_config(data)

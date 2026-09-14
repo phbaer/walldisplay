@@ -1,18 +1,21 @@
 # Paste into a new automation in YAML mode, or add as a list item in automations.yaml.
-alias: Living room wall panel
+alias: walldisplay-living-room wall panel
 description: Complete YAML configuration; also editable through blueprint selectors.
 use_blueprint:
   path: walldisplay/mqtt_sync.yaml
   input:
     panel_topic: panel/living-room
-    panel_name: Living room
+    panel_name: walldisplay-living-room
     page1: weather
     page2: media
     page3: buttons
+    page4: none
+    page5: none
     default_page: weather
     weather_title: Weather
     media_title: Media
     buttons_title: Buttons
+    about_title: About
     grid1_label: Lights
     grid1_state_entity: light.living_room
     grid1_action: []

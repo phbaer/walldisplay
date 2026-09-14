@@ -46,6 +46,7 @@ from .configuration import (
     _basic_schema, _display_schema, _favorites_schema, _count_schema, _chip_schema,
     _footer_schema, _configured_count, _clear_unselected, _pages_schema, _grid_schema,
     _updates_form_schema, _update_api_url, _complete_config, _merge_form, migrate_configuration,
+    _panel_hostname,
 )
 
 class WallDisplayFlowSteps:
@@ -94,7 +95,10 @@ class WallDisplayFlowSteps:
             self._data = {}
         if user_input is not None:
             try:
-                data = migrate_configuration(user_input["configuration"])
+                raw_configuration = user_input["configuration"]
+                if isinstance(raw_configuration, dict) and CONF_PANEL_NAME in raw_configuration:
+                    _panel_hostname(raw_configuration[CONF_PANEL_NAME])
+                data = migrate_configuration(raw_configuration)
                 if isinstance(self, config_entries.OptionsFlow) and data[CONF_PANEL_TOPIC] != self.config_entry.data[CONF_PANEL_TOPIC].rstrip("/"):
                     raise ValueError("Changing panel identity requires a new entry")
             except (vol.Invalid, ValueError, TypeError):
@@ -116,10 +120,16 @@ class WallDisplayFlowSteps:
         }), errors=errors)
 
     async def async_step_basic(self, user_input=None):
+        errors = {}
         if user_input is not None:
-            _merge_form(self._data, user_input, _basic_schema(self._data))
-            return await self.async_step_configure()
-        return self.async_show_form(step_id="basic", data_schema=_basic_schema(self._data))
+            try:
+                user_input[CONF_PANEL_NAME] = _panel_hostname(user_input.get(CONF_PANEL_NAME, ""))
+            except vol.Invalid:
+                errors[CONF_PANEL_NAME] = "invalid_panel_hostname"
+            else:
+                _merge_form(self._data, user_input, _basic_schema(self._data))
+                return await self.async_step_configure()
+        return self.async_show_form(step_id="basic", data_schema=_basic_schema(self._data), errors=errors)
 
     async def async_step_updates(self, user_input=None):
         errors = {}

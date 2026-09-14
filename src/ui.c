@@ -16,6 +16,13 @@
 #include "walldisplay/ui_font_temperature_28_bold.h"
 #include "walldisplay/ui_font_weather_symbols_14.h"
 
+#include "esp_mac.h"
+#include "esp_netif.h"
+#include "esp_netif_ip_addr.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+#include "esp_wifi.h"
+
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -46,9 +53,12 @@ static lv_obj_t *s_weather_page;
 static weather_widget_t *s_weather_widget;
 static buttons_widget_t *s_buttons_widget;
 static lv_obj_t *s_media_page;
+static lv_obj_t *s_about_page;
 static lv_obj_t *s_pages[PANEL_PAGE_COUNT];
-static lv_obj_t *s_page_switches[PANEL_PAGE_COUNT];
-static size_t s_page_switch_count;
+static lv_obj_t *s_page_nav;
+static lv_obj_t *s_page_nav_buttons[PANEL_MAX_PAGES];
+static lv_obj_t *s_page_nav_labels[PANEL_MAX_PAGES];
+static panel_page_id_t s_page_nav_targets[PANEL_MAX_PAGES];
 static panel_layout_t s_layout;
 static panel_page_id_t s_current_page;
 static char s_panel_name[128];
@@ -56,6 +66,11 @@ static lv_obj_t *s_footer;
 static lv_obj_t *s_dynamic_row;
 static lv_obj_t *s_clock_label;
 static lv_obj_t *s_date_label;
+static lv_obj_t *s_about_value_label;
+static lv_timer_t *s_about_refresh_timer;
+static lv_obj_t *s_update_screen;
+static lv_obj_t *s_update_detail_label;
+static lv_obj_t *s_update_progress_bar;
 static lv_obj_t *s_wifi_chip;
 static lv_obj_t *s_mqtt_chip;
 static lv_obj_t *s_ha_chip;
@@ -81,7 +96,7 @@ static void touch_activity_event_cb(lv_event_t *event) {
     LV_UNUSED(event);
     display_dimming_wake();
 }
-static void page_switch_event_cb(lv_event_t *event);
+static void page_nav_event_cb(lv_event_t *event);
 
 /* Static Noto Sans renders all UI text without runtime glyph allocation. */
 static const lv_font_t *font_ui_20(void) { return &ui_font_noto_16; }
@@ -89,6 +104,10 @@ static const lv_font_t *font_time(void) { return &lv_font_montserrat_28; }
 
 /* LVGL's private-use LV_SYMBOL_* glyphs are supplied by Montserrat. */
 static const lv_font_t *font_symbols_14(void) { return &lv_font_montserrat_14; }
+
+static const char *const s_page_nav_symbols[PANEL_PAGE_COUNT] = {
+    LV_SYMBOL_TINT, LV_SYMBOL_AUDIO, LV_SYMBOL_LIST, LV_SYMBOL_SETTINGS,
+};
 
 static void style_volume_rocker_button(lv_obj_t *button) {
     lv_obj_remove_style_all(button);
@@ -297,21 +316,6 @@ static esp_err_t set_chip_state_locked(lv_obj_t *chip, lv_obj_t *chip_label, con
     return ESP_OK;
 }
 
-static void create_page_switch(lv_obj_t *page, const char *symbol) {
-    lv_obj_t *button = lv_btn_create(page);
-    style_button(button);
-    s_page_switches[s_page_switch_count++] = button;
-    lv_obj_set_size(button, 38, 34);
-    lv_obj_align(button, LV_ALIGN_TOP_RIGHT, 0, 0);
-    lv_obj_add_event_cb(button, page_switch_event_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *label = lv_label_create(button);
-    lv_label_set_text(label, symbol);
-    lv_obj_set_style_text_font(label, font_symbols_14(), 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
-    lv_obj_center(label);
-}
-
 static esp_err_t publish_dynamic_button_action(size_t index) {
     return ui_actions_emit((ui_action_t){UI_ACTION_FOOTER, (int)index});
 }
@@ -339,11 +343,11 @@ static lv_obj_t *create_media_button(lv_obj_t *parent, const char *text, int wid
     return button;
 }
 
-static lv_obj_t *create_main_page(lv_obj_t *parent, const char *title, const char *switch_text,
-                                  const char *placeholder, lv_obj_t **out_value_label) {
+static lv_obj_t *create_main_page(lv_obj_t *parent, const char *title, const char *placeholder,
+                                  lv_obj_t **out_value_label) {
     lv_obj_t *page = lv_obj_create(parent);
     style_panel(page, UI_COLOR_SURFACE_ALT, 14);
-    lv_obj_set_size(page, UI_CONTENT_WIDTH, UI_MAIN_HEIGHT);
+    lv_obj_set_size(page, UI_MAIN_CONTENT_WIDTH, UI_MAIN_HEIGHT);
     lv_obj_set_style_pad_all(page, 16, 0);
 
     lv_obj_t *title_label = lv_label_create(page);
@@ -352,11 +356,9 @@ static lv_obj_t *create_main_page(lv_obj_t *parent, const char *title, const cha
     lv_obj_set_style_text_color(title_label, lv_color_hex(0xA4ACB8), 0);
     lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    create_page_switch(page, switch_text);
-
     lv_obj_t *value = lv_label_create(page);
     lv_label_set_text(value, placeholder);
-    lv_obj_set_width(value, 424);
+    lv_obj_set_width(value, UI_MAIN_CONTENT_WIDTH - 36);
     lv_label_set_long_mode(value, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_font(value, font_ui_20(), 0);
     lv_obj_set_style_text_color(value, lv_color_hex(0xECECEC), 0);
@@ -366,6 +368,91 @@ static lv_obj_t *create_main_page(lv_obj_t *parent, const char *title, const cha
         *out_value_label = value;
     }
     return page;
+}
+
+static const char *reset_reason_name(esp_reset_reason_t reason) {
+    switch (reason) {
+        case ESP_RST_POWERON: return "power_on";
+        case ESP_RST_EXT: return "external";
+        case ESP_RST_SW: return "software";
+        case ESP_RST_PANIC: return "panic";
+        case ESP_RST_INT_WDT: return "interrupt_watchdog";
+        case ESP_RST_TASK_WDT: return "task_watchdog";
+        case ESP_RST_WDT: return "watchdog";
+        case ESP_RST_DEEPSLEEP: return "deep_sleep";
+        case ESP_RST_BROWNOUT: return "brownout";
+        case ESP_RST_SDIO: return "sdio";
+        default: return "unknown";
+    }
+}
+
+static void format_ipv6_address(const esp_ip6_addr_t *address, char *output, size_t output_size) {
+    if (address == NULL || output == NULL || output_size == 0) return;
+    snprintf(output, output_size, IPV6STR, IPV62STR(*address));
+}
+
+static void refresh_about_page(void) {
+    if (s_about_value_label == NULL) return;
+
+    char mac_text[18] = "unknown";
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) == ESP_OK) {
+        snprintf(mac_text, sizeof(mac_text), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+
+    char ipv4_text[16] = "unavailable";
+    char ipv6_global_text[40] = "unavailable";
+    char ipv6_linklocal_text[40] = "unavailable";
+    char wifi_text[64] = "unavailable";
+    char hostname_text[64] = "unavailable";
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif != NULL) {
+        esp_netif_ip_info_t ip_info = {0};
+        if (esp_netif_get_ip_info(netif, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
+            esp_ip4addr_ntoa(&ip_info.ip, ipv4_text, sizeof(ipv4_text));
+        }
+
+        const char *hostname = NULL;
+        if (esp_netif_get_hostname(netif, &hostname) == ESP_OK && hostname != NULL && hostname[0] != '\0') {
+            snprintf(hostname_text, sizeof(hostname_text), "%s", hostname);
+        }
+
+        esp_ip6_addr_t ipv6 = {0};
+        if (esp_netif_get_ip6_global(netif, &ipv6) == ESP_OK) {
+            format_ipv6_address(&ipv6, ipv6_global_text, sizeof(ipv6_global_text));
+        }
+        if (esp_netif_get_ip6_linklocal(netif, &ipv6) == ESP_OK) {
+            format_ipv6_address(&ipv6, ipv6_linklocal_text, sizeof(ipv6_linklocal_text));
+        }
+
+        wifi_ap_record_t ap_info = {0};
+        if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+            snprintf(wifi_text, sizeof(wifi_text), "%s (%d dBm, ch %u)",
+                     (const char *) ap_info.ssid, ap_info.rssi, ap_info.primary);
+        }
+    }
+
+    const uint64_t uptime_s = (uint64_t) (esp_timer_get_time() / 1000000LL);
+    const unsigned days = (unsigned) (uptime_s / 86400U);
+    const unsigned hours = (unsigned) ((uptime_s / 3600U) % 24U);
+    const unsigned minutes = (unsigned) ((uptime_s / 60U) % 60U);
+    const unsigned seconds = (unsigned) (uptime_s % 60U);
+    char about_text[768];
+    snprintf(about_text, sizeof(about_text),
+             "Firmware: %s\nMQTT contract: %s\nModel: %s\n"
+             "Hostname: %s\nIPv4: %s\nIPv6: %s\nIPv6 LL: %s\n"
+             "MAC: %s\nWi-Fi: %s\nUptime: %ud %02u:%02u:%02u\nReset: %s",
+             APP_FW_VERSION, APP_CONTRACT_VERSION, APP_DEVICE_MODEL,
+             hostname_text, ipv4_text, ipv6_global_text, ipv6_linklocal_text,
+             mac_text, wifi_text, days, hours, minutes, seconds,
+             reset_reason_name(esp_reset_reason()));
+    lv_label_set_text(s_about_value_label, about_text);
+}
+
+static void about_refresh_timer_cb(lv_timer_t *timer) {
+    LV_UNUSED(timer);
+    refresh_about_page();
 }
 
 static esp_err_t set_label_text_locked(lv_obj_t *label, const char *text) {
@@ -436,12 +523,18 @@ static void show_page_locked(panel_page_id_t id) {
     }
     s_current_page = id;
     lv_label_set_text_fmt(s_title_label, "%s%s%s", s_panel_name,
-                          s_panel_name[0] ? " · " : "", s_layout.titles[id]);
+                          s_panel_name[0] ? " - " : "", s_layout.titles[id]);
+    for (size_t i = 0; i < PANEL_PAGE_COUNT; ++i) {
+        if (s_page_nav_buttons[i] == NULL) continue;
+        if (s_page_nav_targets[i] == id) lv_obj_add_state(s_page_nav_buttons[i], LV_STATE_CHECKED);
+        else lv_obj_clear_state(s_page_nav_buttons[i], LV_STATE_CHECKED);
+    }
 }
 
-static void page_switch_event_cb(lv_event_t *event) {
-    if (lv_event_get_code(event) == LV_EVENT_CLICKED)
-        show_page_locked(panel_layout_next(&s_layout, s_current_page));
+static void page_nav_event_cb(lv_event_t *event) {
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    const panel_page_id_t *target = lv_event_get_user_data(event);
+    if (target != NULL && panel_layout_contains(&s_layout, *target)) show_page_locked(*target);
 }
 
 esp_err_t ui_show_page(const char *page_name) {
@@ -456,9 +549,18 @@ esp_err_t ui_show_page(const char *page_name) {
 
 static void apply_layout_locked(void) {
     s_layout = app_config_get()->layout;
-    for (size_t i = 0; i < s_page_switch_count; ++i) {
-        if (s_layout.count == 1) lv_obj_add_flag(s_page_switches[i], LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_clear_flag(s_page_switches[i], LV_OBJ_FLAG_HIDDEN);
+    if (s_page_nav != NULL) {
+        if (s_layout.count <= 1) lv_obj_add_flag(s_page_nav, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_clear_flag(s_page_nav, LV_OBJ_FLAG_HIDDEN);
+        for (size_t i = 0; i < PANEL_MAX_PAGES; ++i) {
+            if (i < s_layout.count) {
+                s_page_nav_targets[i] = s_layout.order[i];
+                lv_label_set_text(s_page_nav_labels[i], s_page_nav_symbols[s_page_nav_targets[i]]);
+                lv_obj_clear_flag(s_page_nav_buttons[i], LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_obj_add_flag(s_page_nav_buttons[i], LV_OBJ_FLAG_HIDDEN);
+            }
+        }
     }
     weather_widget_set_title(s_weather_widget, s_layout.titles[PANEL_PAGE_WEATHER]);
     buttons_widget_set_title(s_buttons_widget, s_layout.titles[PANEL_PAGE_BUTTONS]);
@@ -609,8 +711,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     s_weather_widget = weather_widget_create(s_main_area);
     if (!s_weather_widget) { lvgl_port_unlock(); return ESP_ERR_NO_MEM; }
     s_weather_page = weather_widget_root(s_weather_widget);
-    create_page_switch(s_weather_page, LV_SYMBOL_RIGHT);
-    s_media_page = create_main_page(s_main_area, "", LV_SYMBOL_RIGHT, "", NULL);
+    s_media_page = create_main_page(s_main_area, "", "", NULL);
     s_media_widget = media_widget_create(s_media_page);
     if (s_media_widget == NULL) {
         lvgl_port_unlock();
@@ -618,7 +719,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     }
     lv_obj_t *media_controls = lv_obj_create(s_media_page);
     lv_obj_remove_style_all(media_controls);
-    lv_obj_set_size(media_controls, 428, 54);
+    lv_obj_set_size(media_controls, UI_MAIN_CONTENT_WIDTH - 36, 54);
     lv_obj_set_layout(media_controls, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(media_controls, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(media_controls, 8, 0);
@@ -631,7 +732,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
 
     lv_obj_t *volume_rocker = lv_obj_create(media_controls);
     style_panel(volume_rocker, 0x112536, 14);
-    lv_obj_set_size(volume_rocker, 236, 52);
+    lv_obj_set_size(volume_rocker, 172, 52);
     lv_obj_set_style_pad_all(volume_rocker, 4, 0);
     lv_obj_set_style_clip_corner(volume_rocker, true, 0);
     lv_obj_t *volume_down_button = create_media_button(volume_rocker, LV_SYMBOL_MINUS, 40, 44, "volume_down", media_control_event_cb, true);
@@ -642,7 +743,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     s_media_volume_slider = lv_slider_create(volume_rocker);
     lv_slider_set_range(s_media_volume_slider, 0, 100);
     lv_slider_set_value(s_media_volume_slider, 50, LV_ANIM_OFF);
-    lv_obj_set_size(s_media_volume_slider, 140, 14);
+    lv_obj_set_size(s_media_volume_slider, 82, 14);
     lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(0x1B3E57), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_media_volume_slider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(s_media_volume_slider, 0, LV_PART_MAIN);
@@ -661,11 +762,11 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_add_event_cb(volume_up_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_up");
 
     lv_obj_t *power_button = create_media_button(s_media_page, LV_SYMBOL_POWER, 38, 34, "power_off", media_control_event_cb, true);
-    lv_obj_align(power_button, LV_ALIGN_TOP_RIGHT, 0, 42);
+    lv_obj_align(power_button, LV_ALIGN_TOP_RIGHT, -8, 8);
 
     lv_obj_t *media_favorites = lv_obj_create(s_media_page);
     lv_obj_remove_style_all(media_favorites);
-    lv_obj_set_size(media_favorites, 424, 34);
+    lv_obj_set_size(media_favorites, UI_MAIN_CONTENT_WIDTH - 36, 34);
     lv_obj_set_layout(media_favorites, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(media_favorites, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(media_favorites, 6, 0);
@@ -691,7 +792,39 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     s_buttons_widget = buttons_widget_create(s_main_area);
     if (!s_buttons_widget) { lvgl_port_unlock(); return ESP_ERR_NO_MEM; }
     s_pages[PANEL_PAGE_BUTTONS] = buttons_widget_root(s_buttons_widget);
-    create_page_switch(s_pages[PANEL_PAGE_BUTTONS], LV_SYMBOL_RIGHT);
+    s_about_page = create_main_page(s_main_area, "", "", &s_about_value_label);
+    if (s_about_page == NULL) { lvgl_port_unlock(); return ESP_ERR_NO_MEM; }
+    lv_obj_set_width(s_about_value_label, UI_MAIN_CONTENT_WIDTH - 24);
+    lv_obj_set_style_text_font(s_about_value_label, font_ui_14(), 0);
+    lv_obj_align(s_about_value_label, LV_ALIGN_TOP_LEFT, 0, 10);
+    refresh_about_page();
+    s_about_refresh_timer = lv_timer_create(about_refresh_timer_cb, 5000, NULL);
+    if (s_about_refresh_timer == NULL) { lvgl_port_unlock(); return ESP_ERR_NO_MEM; }
+    s_pages[PANEL_PAGE_ABOUT] = s_about_page;
+
+    s_page_nav = lv_obj_create(s_main_area);
+    style_panel(s_page_nav, UI_COLOR_SURFACE, 10);
+    lv_obj_set_size(s_page_nav, UI_PAGE_NAV_WIDTH, UI_PAGE_NAV_HEIGHT);
+    lv_obj_set_style_pad_all(s_page_nav, 4, 0);
+    lv_obj_set_style_pad_row(s_page_nav, 4, 0);
+    lv_obj_set_layout(s_page_nav, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(s_page_nav, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_page_nav, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_align(s_page_nav, LV_ALIGN_RIGHT_MID, 0, 0);
+    for (size_t i = 0; i < PANEL_MAX_PAGES; ++i) {
+        s_page_nav_targets[i] = PANEL_PAGE_WEATHER;
+        lv_obj_t *button = lv_btn_create(s_page_nav);
+        style_button(button);
+        lv_obj_set_size(button, 34, 34);
+        lv_obj_add_event_cb(button, page_nav_event_cb, LV_EVENT_CLICKED, &s_page_nav_targets[i]);
+        lv_obj_t *label = lv_label_create(button);
+        lv_obj_set_style_text_font(label, font_symbols_14(), 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
+        lv_label_set_text(label, "-");
+        lv_obj_center(label);
+        s_page_nav_buttons[i] = button;
+        s_page_nav_labels[i] = label;
+    }
     apply_layout_locked();
 
     s_footer = lv_obj_create(screen);
@@ -734,6 +867,40 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     }
 
     update_footer_layout_locked();
+
+    /* Keep OTA visually quiet: this opaque screen is the last child, so
+     * retained MQTT updates underneath it cannot produce visible redraws. */
+    s_update_screen = lv_obj_create(screen);
+    if (s_update_screen == NULL) { lvgl_port_unlock(); return ESP_ERR_NO_MEM; }
+    lv_obj_remove_style_all(s_update_screen);
+    lv_obj_set_size(s_update_screen, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(s_update_screen, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_update_screen, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_update_screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_update_screen, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *update_title = lv_label_create(s_update_screen);
+    lv_label_set_text(update_title, "Firmware update");
+    lv_obj_set_style_text_font(update_title, font_ui_24(), 0);
+    lv_obj_set_style_text_color(update_title, lv_color_hex(UI_COLOR_TEXT), 0);
+    lv_obj_align(update_title, LV_ALIGN_CENTER, 0, -20);
+
+    s_update_detail_label = lv_label_create(s_update_screen);
+    lv_label_set_text(s_update_detail_label, "Please wait...");
+    lv_obj_set_style_text_font(s_update_detail_label, font_ui_16(), 0);
+    lv_obj_set_style_text_color(s_update_detail_label, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
+    lv_obj_align(s_update_detail_label, LV_ALIGN_CENTER, 0, 24);
+
+    s_update_progress_bar = lv_bar_create(s_update_screen);
+    lv_obj_set_size(s_update_progress_bar, 240, 10);
+    lv_obj_align(s_update_progress_bar, LV_ALIGN_CENTER, 0, 60);
+    lv_obj_set_style_bg_color(s_update_progress_bar, lv_color_hex(0x263241), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_update_progress_bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_update_progress_bar, lv_color_hex(0x4EA1FF), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(s_update_progress_bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_bar_set_range(s_update_progress_bar, 0, 100);
+    lv_bar_set_value(s_update_progress_bar, 0, LV_ANIM_OFF);
+    lv_obj_add_flag(s_update_screen, LV_OBJ_FLAG_HIDDEN);
 
     lvgl_port_unlock();
 
@@ -939,4 +1106,54 @@ esp_err_t ui_set_measurement_chip_color(size_t index, const char *color_text) {
     esp_err_t ret = set_measurement_chip_color_locked(index, color_text);
     lvgl_port_unlock();
     return ret;
+}
+
+esp_err_t ui_show_update_screen(void) {
+    if (!lvgl_port_lock(0)) return ESP_ERR_TIMEOUT;
+    if (s_update_screen == NULL) {
+        lvgl_port_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    lv_obj_clear_flag(s_update_screen, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(s_update_detail_label, "Preparing update...");
+    lv_bar_set_value(s_update_progress_bar, 0, LV_ANIM_OFF);
+    lv_obj_move_foreground(s_update_screen);
+    /* Render the opaque overlay immediately, before OTA networking starts.
+     * Otherwise the RGB DMA can show an intermediate page frame. */
+    /* Direct RGB mode has two panel-owned frame buffers. Render the opaque
+     * overlay into both so a buffer swap cannot expose the old header (or an
+     * unsupported glyph from it) during the transfer. */
+    for (int frame = 0; frame < 2; ++frame) {
+        lv_obj_invalidate(s_update_screen);
+        lv_refr_now(lv_display_get_default());
+    }
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_set_update_progress(uint8_t percent) {
+    if (percent > 100) return ESP_ERR_INVALID_ARG;
+    if (!lvgl_port_lock(0)) return ESP_ERR_TIMEOUT;
+    if (s_update_detail_label == NULL || s_update_progress_bar == NULL) {
+        lvgl_port_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    char detail[32];
+    snprintf(detail, sizeof(detail), "Downloading firmware... %u%%", (unsigned) percent);
+    lv_label_set_text(s_update_detail_label, detail);
+    lv_bar_set_value(s_update_progress_bar, percent, LV_ANIM_OFF);
+    lv_obj_invalidate(s_update_screen);
+    lvgl_port_unlock();
+    return ESP_OK;
+}
+
+esp_err_t ui_hide_update_screen(void) {
+    if (!lvgl_port_lock(0)) return ESP_ERR_TIMEOUT;
+    if (s_update_screen == NULL) {
+        lvgl_port_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    lv_obj_add_flag(s_update_screen, LV_OBJ_FLAG_HIDDEN);
+    lvgl_port_unlock();
+    return ESP_OK;
 }

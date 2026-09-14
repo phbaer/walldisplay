@@ -385,14 +385,22 @@ static void on_mqtt_message(const char *topic, const char *payload, bool retaine
 
     snprintf(expected_topic, sizeof(expected_topic), "%s/set/name", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
-        ui_set_title_text(payload);
-        ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/name", payload, true));
+        if (wifi_manager_set_hostname(payload) == ESP_OK) {
+            ui_set_title_text(payload);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/name", payload, true));
+        } else {
+            ESP_LOGW(TAG, "Ignoring invalid panel hostname");
+        }
         return;
     }
 
     snprintf(expected_topic, sizeof(expected_topic), "%s/state/name", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
-        ui_set_title_text(payload);
+        if (wifi_manager_set_hostname(payload) == ESP_OK) {
+            ui_set_title_text(payload);
+        } else {
+            ESP_LOGW(TAG, "Ignoring invalid retained panel hostname");
+        }
         return;
     }
 

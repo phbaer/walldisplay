@@ -85,7 +85,7 @@ esp_err_t app_config_init(void) {
         size_t required_size = sizeof(s_app_config.base_topic);
         nvs_get_str(nvs_handle, "base_topic", s_app_config.base_topic, &required_size);
         uint8_t default_page;
-        if (nvs_get_u8(nvs_handle, "default_page", &default_page) == ESP_OK && default_page <= APP_DEFAULT_PAGE_MEDIA &&
+        if (nvs_get_u8(nvs_handle, "default_page", &default_page) == ESP_OK && default_page < PANEL_PAGE_COUNT &&
             panel_layout_contains(&s_app_config.layout, (panel_page_id_t)default_page)) {
             s_app_config.default_page = (app_default_page_t)default_page;
         }

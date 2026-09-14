@@ -104,6 +104,16 @@ esp_mqtt_client_handle_t mqtt_app_client(void) {
     return s_client;
 }
 
+esp_err_t mqtt_app_stop(void) {
+    ESP_RETURN_ON_FALSE(s_client != NULL, ESP_ERR_INVALID_STATE, TAG, "mqtt client not started");
+    return esp_mqtt_client_stop(s_client);
+}
+
+esp_err_t mqtt_app_restart(void) {
+    ESP_RETURN_ON_FALSE(s_client != NULL, ESP_ERR_INVALID_STATE, TAG, "mqtt client not started");
+    return esp_mqtt_client_start(s_client);
+}
+
 esp_err_t mqtt_app_publish(const char *topic, const char *payload, bool retain) {
     ESP_RETURN_ON_FALSE(topic != NULL, ESP_ERR_INVALID_ARG, TAG, "topic is null");
     ESP_RETURN_ON_FALSE(payload != NULL, ESP_ERR_INVALID_ARG, TAG, "payload is null");

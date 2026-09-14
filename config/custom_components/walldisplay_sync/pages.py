@@ -1,10 +1,12 @@
 """Shared page configuration and MQTT payloads, independent of Home Assistant."""
-PAGE_NAMES = ("weather", "media", "buttons")
+PAGE_NAMES = ("weather", "media", "buttons", "about")
+MAX_PAGE_SLOTS = 5
+DEFAULT_PAGE_SLOTS = ("weather", "media", "none", "none", "none")
 GRID_COUNT = 6
 
 
 def layout_payload(config):
-    pages = [config.get(f"page{slot}", default) for slot, default in enumerate(("weather", "media", "none"), 1)]
+    pages = [config.get(f"page{slot}", default) for slot, default in enumerate(DEFAULT_PAGE_SLOTS, 1)]
     pages = [page for page in pages if page != "none"]
     default = config.get("default_page", "weather")
     if not pages or any(page not in PAGE_NAMES for page in pages) or len(set(pages)) != len(pages):

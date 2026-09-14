@@ -4,6 +4,10 @@
 #include "ui_font_temperature_28_bold.h"
 #include "ui_font_weather_symbols_14.h"
 #define UI_CONTENT_WIDTH 460
+#define UI_PAGE_NAV_WIDTH 52
+#define UI_MAIN_NAV_GAP 8
+#define UI_MAIN_CONTENT_WIDTH (UI_CONTENT_WIDTH - UI_PAGE_NAV_WIDTH - UI_MAIN_NAV_GAP)
+#define UI_PAGE_NAV_HEIGHT 204
 #define UI_MAIN_COMPACT_HEIGHT 254
 #define UI_COLOR_SURFACE 0x0C0D10
 #define UI_COLOR_SURFACE_ALT 0x101317

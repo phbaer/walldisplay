@@ -3,10 +3,10 @@
 #include <string.h>
 #include <strings.h>
 
-static const char *const names[] = {"weather", "media", "buttons"};
+static const char *const names[] = {"weather", "media", "buttons", "about"};
 void panel_layout_defaults(panel_layout_t *layout) {
     *layout = (panel_layout_t){.order = {PANEL_PAGE_WEATHER, PANEL_PAGE_MEDIA}, .count = 2,
-        .default_page = PANEL_PAGE_WEATHER, .titles = {"Weather", "Media", "Buttons"}};
+        .default_page = PANEL_PAGE_WEATHER, .titles = {"Weather", "Media", "Buttons", "About"}};
 }
 const char *panel_page_name(panel_page_id_t id) {
     return (unsigned)id < PANEL_PAGE_COUNT ? names[id] : "";
@@ -39,7 +39,7 @@ bool panel_layout_parse(const char *json, panel_layout_t *layout) {
     if (!cJSON_IsObject(root) || !cJSON_IsArray(pages) || !cJSON_IsString(initial) ||
         !panel_page_parse(initial->valuestring, &candidate.default_page)) goto done;
     int count = cJSON_GetArraySize(pages);
-    if (count < 1 || count > PANEL_PAGE_COUNT) goto done;
+    if (count < 1 || count > PANEL_MAX_PAGES) goto done;
     candidate.count = 0;
     for (int i = 0; i < count; ++i) {
         cJSON *item = cJSON_GetArrayItem(pages, i);

@@ -104,6 +104,7 @@ jobs:
       - name: Build and verify signed release
         env:
           OTA_SIGNING_KEY_PEM: ${{ secrets.OTA_SIGNING_KEY_PEM }}
+          FIRMWARE_VERSION: ${{ steps.release.outputs.version }}
         run: bash tools/ci_firmware.sh release
       - name: Package firmware
         env:

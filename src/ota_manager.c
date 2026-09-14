@@ -1,5 +1,9 @@
 #include "walldisplay/ota_manager.h"
+#include "walldisplay/display_board.h"
+#include "walldisplay/media_artwork.h"
+#include "walldisplay/mqtt_app.h"
 #include "walldisplay/security_policy.h"
+#include "walldisplay/ui.h"
 
 #include "cJSON.h"
 #include "esp_crt_bundle.h"
@@ -19,6 +23,7 @@
 #define OTA_URL_MAX_LEN 384
 #define OTA_MANIFEST_MAX_LEN 4096
 #define OTA_DOWNLOAD_BUFFER_LEN 4096
+#define OTA_DOWNLOAD_CHUNK_LEN 32768
 #define OTA_TASK_STACK_SIZE 8192
 #define OTA_TASK_PRIORITY 5
 
@@ -105,6 +110,10 @@ static esp_err_t read_manifest(const char *url, char *buffer, size_t buffer_len)
         .url = url,
         .timeout_ms = 15000,
         .crt_bundle_attach = esp_crt_bundle_attach,
+        /* Release hosts may publish an unusable link-local AAAA record.  OTA
+         * URLs are HTTPS and retain hostname verification, while connecting
+         * through IPv4 avoids selecting that unroutable address. */
+        .addr_type = HTTP_ADDR_TYPE_INET,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) {
@@ -169,37 +178,13 @@ static esp_err_t parse_manifest(const char *json, ota_manifest_t *manifest) {
 }
 
 static esp_err_t download_firmware(const ota_manifest_t *manifest) {
-    esp_http_client_config_t config = {
-        .url = manifest->firmware_url,
-        .timeout_ms = 30000,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-
-    esp_err_t err = esp_http_client_open(client, 0);
-    if (err != ESP_OK) {
-        esp_http_client_cleanup(client);
-        return err;
-    }
-    const int content_length = esp_http_client_fetch_headers(client);
-    if (esp_http_client_get_status_code(client) != 200 ||
-        (content_length >= 0 && (size_t) content_length != manifest->size)) {
-        esp_http_client_cleanup(client);
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-
     const esp_partition_t *partition = esp_ota_get_next_update_partition(NULL);
     if (partition == NULL || manifest->size > partition->size) {
-        esp_http_client_cleanup(client);
         return ESP_ERR_INVALID_SIZE;
     }
     esp_ota_handle_t ota_handle = 0;
-    err = esp_ota_begin(partition, manifest->size, &ota_handle);
+    esp_err_t err = esp_ota_begin(partition, manifest->size, &ota_handle);
     if (err != ESP_OK) {
-        esp_http_client_cleanup(client);
         return err;
     }
 
@@ -214,25 +199,67 @@ static esp_err_t download_firmware(const ota_manifest_t *manifest) {
         err = ESP_FAIL;
     }
     while (err == ESP_OK && total < manifest->size) {
-        const size_t remaining = manifest->size - total;
-        const int received = esp_http_client_read(client, (char *) buffer,
-                                                  remaining < OTA_DOWNLOAD_BUFFER_LEN ? remaining : OTA_DOWNLOAD_BUFFER_LEN);
-        if (received <= 0) {
+        const size_t chunk_size = (manifest->size - total) < OTA_DOWNLOAD_CHUNK_LEN
+                                      ? manifest->size - total : OTA_DOWNLOAD_CHUNK_LEN;
+        esp_http_client_config_t config = {
+            .url = manifest->firmware_url,
+            .timeout_ms = 30000,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            /* Release hosts may publish an unusable link-local AAAA record. */
+            .addr_type = HTTP_ADDR_TYPE_INET,
+        };
+        esp_http_client_handle_t client = esp_http_client_init(&config);
+        if (client == NULL) {
+            err = ESP_ERR_NO_MEM;
+            break;
+        }
+        char range[64];
+        snprintf(range, sizeof(range), "bytes=%u-%u", (unsigned) total,
+                 (unsigned) (total + chunk_size - 1));
+        err = esp_http_client_set_header(client, "Range", range);
+        if (err == ESP_OK) err = esp_http_client_open(client, 0);
+        const int content_length = err == ESP_OK ? esp_http_client_fetch_headers(client) : -1;
+        if (err == ESP_OK && (esp_http_client_get_status_code(client) != 206 ||
+                              content_length != (int) chunk_size)) {
+            ESP_LOGE(TAG, "Firmware range %s returned status=%d length=%d", range,
+                     esp_http_client_get_status_code(client), content_length);
+            err = ESP_ERR_INVALID_RESPONSE;
+        }
+        size_t chunk_total = 0;
+        while (err == ESP_OK && chunk_total < chunk_size) {
+            const size_t remaining = chunk_size - chunk_total;
+            const int received = esp_http_client_read(client, (char *) buffer,
+                                                      remaining < OTA_DOWNLOAD_BUFFER_LEN ? remaining : OTA_DOWNLOAD_BUFFER_LEN);
+            if (received <= 0) {
+                ESP_LOGE(TAG, "Firmware HTTP range %s stopped at %u/%u bytes (result=%d, complete=%d)",
+                         range, (unsigned) chunk_total, (unsigned) chunk_size, received,
+                         esp_http_client_is_complete_data_received(client));
+                err = ESP_ERR_INVALID_SIZE;
+                break;
+            }
+            if (mbedtls_md_update(&sha_context, buffer, (size_t) received) != 0 ||
+                esp_ota_write(ota_handle, buffer, (size_t) received) != ESP_OK) {
+                err = ESP_FAIL;
+                break;
+            }
+            chunk_total += (size_t) received;
+            total += (size_t) received;
+        }
+        if (err == ESP_OK && (!esp_http_client_is_complete_data_received(client) || chunk_total != chunk_size)) {
             err = ESP_ERR_INVALID_SIZE;
-            break;
         }
-        if (mbedtls_md_update(&sha_context, buffer, (size_t) received) != 0 ||
-            esp_ota_write(ota_handle, buffer, (size_t) received) != ESP_OK) {
-            err = ESP_FAIL;
-            break;
+        esp_http_client_cleanup(client);
+        if (err == ESP_OK) {
+            const uint8_t percent = (uint8_t) ((total * 100ULL) / manifest->size);
+            ESP_LOGI(TAG, "Firmware download progress: %u%% (%u/%u bytes)",
+                     (unsigned) percent, (unsigned) total, (unsigned) manifest->size);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(ui_set_update_progress(percent));
         }
-        total += (size_t) received;
     }
     if (err == ESP_OK && mbedtls_md_finish(&sha_context, calculated_sha256) != 0) {
         err = ESP_FAIL;
     }
     mbedtls_md_free(&sha_context);
-    esp_http_client_cleanup(client);
 
     if (err == ESP_OK && (total != manifest->size || memcmp(calculated_sha256, manifest->sha256, sizeof(calculated_sha256)) != 0)) {
         err = ESP_ERR_INVALID_CRC;
@@ -259,26 +286,49 @@ static void ota_task(void *arg) {
             continue;
         }
         publish_status("checking", "Downloading manifest", NULL);
+        /* The running MQTT TLS session and artwork fetch can otherwise leave
+         * too little contiguous internal RAM for the 16 KiB HTTPS record. */
+        ESP_ERROR_CHECK_WITHOUT_ABORT(media_artwork_cancel());
+        ESP_ERROR_CHECK_WITHOUT_ABORT(mqtt_app_stop());
+        vTaskDelay(pdMS_TO_TICKS(250));
         esp_err_t err = read_manifest(request.manifest_url, s_manifest_json, sizeof(s_manifest_json));
-        if (err == ESP_OK) {
-            err = parse_manifest(s_manifest_json, &manifest);
-        }
         if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Manifest failed: %s", esp_err_to_name(err));
-            publish_status("error", "Manifest validation failed", NULL);
+            ESP_LOGE(TAG, "Manifest download failed: %s", esp_err_to_name(err));
+            ESP_ERROR_CHECK_WITHOUT_ABORT(mqtt_app_restart());
+            publish_status("error", "Unable to download update manifest", NULL);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(ui_hide_update_screen());
+            continue;
+        }
+        err = parse_manifest(s_manifest_json, &manifest);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Manifest validation failed: %s", esp_err_to_name(err));
+            ESP_ERROR_CHECK_WITHOUT_ABORT(mqtt_app_restart());
+            publish_status("error", "Update manifest is invalid", NULL);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(ui_hide_update_screen());
             continue;
         }
 
         publish_status("installing", "Downloading firmware", manifest.version);
+        /* Flash writes temporarily contend with the RGB DMA path for cache and
+         * PSRAM bandwidth. Lowering PCLK keeps the static update screen visible
+         * while reducing that contention; the board falls back to a dark
+         * transfer if its RGB driver cannot change PCLK. */
+        ESP_ERROR_CHECK_WITHOUT_ABORT(display_board_enter_ota());
         err = download_firmware(&manifest);
         ESP_LOGI(TAG, "OTA stack minimum free: %u bytes", (unsigned)uxTaskGetStackHighWaterMark(NULL));
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Firmware update failed: %s", esp_err_to_name(err));
+            ESP_ERROR_CHECK_WITHOUT_ABORT(display_board_exit_ota());
+            ESP_ERROR_CHECK_WITHOUT_ABORT(mqtt_app_restart());
             publish_status("error", "Firmware download or verification failed", manifest.version);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(ui_hide_update_screen());
             continue;
         }
         publish_status("rebooting", "Firmware verified", manifest.version);
-        vTaskDelay(pdMS_TO_TICKS(500));
+        ESP_ERROR_CHECK_WITHOUT_ABORT(display_board_prepare_for_restart());
+        /* Let the backlight shutdown and blank frame reach the panel before
+         * the reset sequence starts. */
+        vTaskDelay(pdMS_TO_TICKS(100));
         esp_restart();
     }
 }
@@ -321,6 +371,7 @@ esp_err_t ota_manager_request(const char *manifest_url) {
     if (xQueueSend(s_request_queue, &request, 0) != pdTRUE) {
         return ESP_ERR_INVALID_STATE;
     }
+    ESP_ERROR_CHECK_WITHOUT_ABORT(ui_show_update_screen());
     publish_status("queued", "Update request accepted", NULL);
     return ESP_OK;
 }

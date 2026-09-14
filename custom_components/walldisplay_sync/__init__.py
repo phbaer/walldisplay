@@ -54,6 +54,7 @@ _LOGGER = logging.getLogger(__name__)
 _PLATFORMS = [Platform.BUTTON, Platform.EVENT]
 _UPDATE_ISSUE_PREFIX = "firmware_update_"
 _UPDATE_CHECK_INTERVAL = timedelta(hours=6)
+_UPDATE_RETRY_INTERVAL = timedelta(minutes=5)
 
 
 def _forecast_day(value: Any) -> str:
@@ -96,17 +97,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(lambda: async_unregister_cache(hass, entry.entry_id))
 
     current_version = ""
+    last_update_check: datetime | None = None
     update_check_lock = asyncio.Lock()
     update_issue_id = f"{_UPDATE_ISSUE_PREFIX}{entry.entry_id}"
     if not update_api_url:
         ir.async_delete_issue(hass, DOMAIN, update_issue_id)
 
-    async def check_for_update() -> None:
+    async def check_for_update(force: bool = False) -> None:
+        nonlocal last_update_check
         if not current_version or not update_api_url:
             return
+        now = dt_util.now()
+        if not force and last_update_check is not None and now - last_update_check < _UPDATE_RETRY_INTERVAL:
+            return
+        last_update_check = now
         async with update_check_lock:
             release = await async_latest_release(hass, update_api_url)
-            if release is None or not is_newer(current_version, release):
+            # Keep an existing issue when the release API is temporarily
+            # unavailable. A later panel heartbeat or scheduled check retries.
+            if release is None:
+                return
+            if not is_newer(current_version, release):
                 ir.async_delete_issue(hass, DOMAIN, update_issue_id)
                 return
             ir.async_create_issue(
@@ -139,9 +150,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             payload = json.loads(message.payload)
         except (TypeError, json.JSONDecodeError):
             return
+        state = payload.get("state") if isinstance(payload, dict) else None
         version = (payload.get("firmware_version") or payload.get("version")) if isinstance(payload, dict) else None
-        if isinstance(version, str) and version and version != current_version:
-            current_version = version
+        runtime = entry.runtime_data
+        if state in {"queued", "checking", "installing"}:
+            runtime.update_running = True
+            if isinstance(version, str) and version:
+                runtime.update_target = version
+        elif state == "error":
+            runtime.update_running = False
+            runtime.update_target = ""
+        if isinstance(version, str) and version:
+            if version != current_version:
+                current_version = version
+            if (runtime.update_running and runtime.update_target and
+                    getattr(message, "topic", "").endswith("/state/device") and version == runtime.update_target):
+                runtime.update_running = False
+                runtime.update_target = ""
+            # The panel publishes retained device information periodically.
+            # Retry checks after startup/network failures, with a debounce.
             await check_for_update()
 
     media_generation = 0
@@ -178,7 +205,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await mqtt.async_publish(hass, f"{topic}/set/screenshots_enabled", "ON" if config["screenshots_enabled"] else "OFF", 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/pages", json.dumps(layout_payload(config), ensure_ascii=False), 1, True)
         # Keep the compatibility payload aligned with the generated manifest.
-        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "1.0.0", "contract": "7"}), 1, True)
+        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "1.0.0", "contract": "9"}), 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/name", panel_name, 1, True)
         await mqtt.async_publish(
             hass,
@@ -405,7 +432,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(await mqtt.async_subscribe(hass, f"{topic}/state/device", panel_version, 1))
     entry.async_on_unload(await mqtt.async_subscribe(hass, f"{topic}/state/update", panel_version, 1))
     if update_api_url:
-        entry.async_on_unload(async_track_time_interval(hass, lambda _: check_for_update(), _UPDATE_CHECK_INTERVAL))
+        entry.async_on_unload(
+            async_track_time_interval(hass, lambda _: check_for_update(force=True), _UPDATE_CHECK_INTERVAL)
+        )
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await publish_all()
     return True

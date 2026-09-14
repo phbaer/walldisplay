@@ -94,12 +94,15 @@ public:
 
         const cJSON *title = cJSON_GetObjectItemCaseSensitive(root, "title");
         const cJSON *artist = cJSON_GetObjectItemCaseSensitive(root, "artist");
+        const cJSON *album = cJSON_GetObjectItemCaseSensitive(root, "album");
         const cJSON *source = cJSON_GetObjectItemCaseSensitive(root, "source");
         const cJSON *state = cJSON_GetObjectItemCaseSensitive(root, "state");
         char text[384];
-        std::snprintf(text, sizeof(text), "%s%s%s%s%s%s%s",
+        std::snprintf(text, sizeof(text), "%s%s%s%s%s%s%s%s%s",
                       cJSON_IsString(title) ? title->valuestring : "Media idle",
                       cJSON_IsString(artist) ? "\n" : "", cJSON_IsString(artist) ? artist->valuestring : "",
+                      cJSON_IsString(album) && album->valuestring[0] ? "\n" : "",
+                      cJSON_IsString(album) ? album->valuestring : "",
                       cJSON_IsString(source) && source->valuestring[0] ? "\n" : "",
                       cJSON_IsString(source) ? source->valuestring : "",
                       cJSON_IsString(state) ? "\n" : "", cJSON_IsString(state) ? state->valuestring : "");

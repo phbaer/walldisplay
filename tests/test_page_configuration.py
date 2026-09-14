@@ -9,7 +9,7 @@ from jinja2 import Environment
 from custom_components.walldisplay_sync.config_flow import (
     _complete_config, _grid_schema, _merge_form, WallDisplayConfigFlow,
 )
-from custom_components.walldisplay_sync.pages import layout_payload, grid_payload
+from custom_components.walldisplay_sync.pages import MAX_PAGE_SLOTS, layout_payload, grid_payload
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,6 +38,7 @@ class PageConfigurationTests(unittest.TestCase):
         self.assertEqual(config, restored)
         self.assertEqual(layout_payload(restored)["pages"], ["buttons"])
         self.assertEqual(config["media_entity"], "")
+        self.assertEqual(config["about_title"], "About")
 
     def test_complete_examples(self):
         integration = _complete_config(yaml.safe_load((ROOT / "config/examples/panel_integration.yaml").read_text()))
@@ -45,6 +46,20 @@ class PageConfigurationTests(unittest.TestCase):
         blueprint = automation["use_blueprint"]["input"]
         self.assertEqual(layout_payload(integration), layout_payload(blueprint))
         self.assertEqual(integration["grid1_state_entity"], blueprint["grid1_state_entity"])
+
+    def test_layout_supports_five_ordered_slots(self):
+        config = _complete_config({
+            "panel_topic": "panel/test",
+            "page1": "weather",
+            "page2": "media",
+            "page3": "buttons",
+            "page4": "about",
+            "page5": "none",
+            "default_page": "about",
+        })
+        self.assertEqual(MAX_PAGE_SLOTS, 5)
+        self.assertEqual(layout_payload(config)["pages"], ["weather", "media", "buttons", "about"])
+        self.assertEqual(config["page5"], "none")
 
     def test_build_time_yaml_defaults(self):
         import ast
@@ -59,7 +74,9 @@ class PageConfigurationTests(unittest.TestCase):
             command = [sys.executable, str(ROOT / "tools/generate_app_config_defaults.py"), str(source), str(output)]
             subprocess.run(command, check=True, capture_output=True)
             macro = next(line.split(" ", 2)[2] for line in output.read_text().splitlines() if line.startswith("#define APPCFG_DEFAULT_LAYOUT_JSON "))
-            self.assertEqual(json.loads(ast.literal_eval(macro))["pages"], ["buttons", "media"])
+            generated_layout = json.loads(ast.literal_eval(macro))
+            self.assertEqual(generated_layout["pages"], ["buttons", "media"])
+            self.assertEqual(generated_layout["titles"]["about"], "About")
             source.write_text(text.replace("page2: media", "page2: weather"))
             self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
 
@@ -78,9 +95,15 @@ class PageConfigurationTests(unittest.TestCase):
                        {"page1": "buttons", "default_page": "weather"}, {"page1": "camera"},
                        {"weather_title": "é" * 25}, {"grid1_label": "é" * 49},
                        {"grid1_state_entity": "sensor.temperature"}, {"surprise": True},
-                       {"panel_topic": "panel/#"}, {"update_api_url": "http://git.example/releases"}):
+                       {"panel_topic": "panel/#"}, {"update_api_url": "http://git.example/releases"},
+                       {"panel_name": "Living room"}, {"panel_name": "-living-room"},
+                       {"panel_name": "living_room"}, {"panel_name": "x" * 33}):
             with self.subTest(change=change), self.assertRaises((ValueError, vol.Invalid)):
                 _complete_config({"panel_topic": "panel/test", **change})
+
+    def test_panel_hostname_is_normalized(self):
+        config = _complete_config({"panel_topic": "panel/test", "panel_name": "Living-Room"})
+        self.assertEqual(config["panel_name"], "living-room")
 
     def test_clear_entity_in_form(self):
         data = {"grid1_label": "Lights", "grid1_state_entity": "light.room"}
@@ -96,7 +119,7 @@ class PageConfigurationTests(unittest.TestCase):
             if "selector" in spec:
                 selector.validate_selector(spec["selector"])
         defaults = {key: spec.get("default", "") for key, spec in inputs.items()}
-        defaults.update(page1="buttons", page2="weather", page3="media", default_page="buttons", grid1_label="Living room")
+        defaults.update(page1="buttons", page2="weather", page3="about", default_page="buttons", grid1_label="Living room")
         environment = Environment()
         publishes = [value["data"] for value in mappings(blueprint["actions"]) if value.get("action") == "mqtt.publish"]
         layout = next(item for item in publishes if item["topic"].endswith("/set/pages"))

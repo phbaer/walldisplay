@@ -22,7 +22,7 @@ static void grid_button_event_cb(lv_event_t *event) {
 lv_obj_t *create(lv_obj_t *parent) {
     lv_obj_t *page = lv_obj_create(parent);
     style_panel(page, UI_COLOR_SURFACE_ALT, 14);
-    lv_obj_set_size(page, UI_CONTENT_WIDTH, UI_MAIN_COMPACT_HEIGHT);
+    lv_obj_set_size(page, UI_MAIN_CONTENT_WIDTH, UI_MAIN_COMPACT_HEIGHT);
     lv_obj_set_style_pad_all(page, 16, 0);
     s_buttons_title = lv_label_create(page);
     lv_label_set_text(s_buttons_title, "Buttons");
@@ -33,14 +33,14 @@ lv_obj_t *create(lv_obj_t *parent) {
         s_grid_slots[i] = i;
         lv_obj_t *button = lv_btn_create(page);
         style_button(button);
-        lv_obj_set_size(button, 206, 56);
-        lv_obj_set_pos(button, (i % 2) * 216, 40 + (i / 2) * 62);
+        lv_obj_set_size(button, 174, 56);
+        lv_obj_set_pos(button, (i % 2) * 184, 40 + (i / 2) * 62);
         lv_obj_add_event_cb(button, grid_button_event_cb, LV_EVENT_CLICKED, &s_grid_slots[i]);
         s_grid_buttons[i] = button;
         s_grid_labels[i] = lv_label_create(button);
         lv_obj_set_style_text_font(s_grid_labels[i], font_ui_16(), 0);
         lv_obj_set_style_text_color(s_grid_labels[i], lv_color_hex(UI_COLOR_TEXT), 0);
-        lv_obj_set_width(s_grid_labels[i], 186);
+        lv_obj_set_width(s_grid_labels[i], 154);
         lv_label_set_long_mode(s_grid_labels[i], LV_LABEL_LONG_DOT);
         lv_obj_set_style_text_align(s_grid_labels[i], LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_center(s_grid_labels[i]);

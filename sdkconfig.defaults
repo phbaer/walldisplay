@@ -10,6 +10,15 @@ CONFIG_LWIP_LOCAL_HOSTNAME="guition-panel"
 CONFIG_MQTT_PROTOCOL_311=y
 CONFIG_MQTT_TRANSPORT_SSL=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+# Keep TLS record buffers dynamic so the persistent MQTT session and the
+# short-lived HTTPS artwork request can coexist within internal RAM.
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+# Keep the standard TLS maximum inbound record size; OTA downloads can contain
+# 16 KiB records from the release server.
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+# MQTT and HTTP requests are all below this size; dynamic fragmentation keeps
+# larger records working while avoiding a 4 KiB contiguous TX allocation.
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=2048
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_28=y

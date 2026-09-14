@@ -1,7 +1,7 @@
 # Paste the entire mapping into WallDisplay Sync → Copy / paste YAML configuration.
 # This is an integration editor document, not a configuration.yaml integration block.
 panel_topic: panel/living-room
-panel_name: Living room
+panel_name: walldisplay-living-room
 weather_entity: weather.home
 media_entity: media_player.living_room
 # HTTPS Forgejo-compatible release API; empty disables update checks.
@@ -9,6 +9,8 @@ update_api_url: https://git.baer.one/api/v1/repos/phbaer/walldisplay/releases?li
 page1: weather
 page2: media
 page3: buttons
+page4: none
+page5: none
 default_page: weather
 grid1_label: Lights
 grid1_state_entity: light.living_room
@@ -52,6 +54,7 @@ footer5_label: ''
 weather_title: Weather
 media_title: Media
 buttons_title: Buttons
+about_title: About
 grid3_label: ''
 grid4_label: ''
 grid5_label: ''

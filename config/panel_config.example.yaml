@@ -20,10 +20,13 @@ display:
   page1: weather
   page2: media
   page3: none
+  page4: none
+  page5: none
   default_page: weather
   weather_title: Weather
   media_title: Media
   buttons_title: Buttons
+  about_title: About
 
 security:
   # Generate a distinct token per panel; empty disables the screenshot server.

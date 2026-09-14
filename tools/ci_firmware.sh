@@ -27,7 +27,11 @@ try:
 except (ValueError, TypeError, AssertionError):
     raise SystemExit('OTA_SIGNING_KEY_PEM must contain a valid unencrypted RSA-3072 private PEM')
 PY
-  python tools/build_signed_firmware.py --key "$signing_key_file" --build-dir build
+  build_args=(python tools/build_signed_firmware.py --key "$signing_key_file" --build-dir build)
+  if [ -n "${FIRMWARE_VERSION:-}" ]; then
+    build_args+=(--version "$FIRMWARE_VERSION")
+  fi
+  "${build_args[@]}"
   python tools/check_signed_firmware.py --image build/walldisplay.bin --key "$signing_key_file"
 else
   idf.py set-target esp32s3

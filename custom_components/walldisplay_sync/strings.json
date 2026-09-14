@@ -27,7 +27,7 @@
         "title": "Panel and media player",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel name",
+          "panel_name": "Panel hostname",
           "media_entity": "Media player",
           "media_power_switch": "Media power switch (optional)"
         }
@@ -128,21 +128,24 @@
         "title": "WallDisplay Sync",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel name",
+          "panel_name": "Panel hostname",
           "media_entity": "Media player"
         }
       },
       "pages": {
         "title": "Pages and navigation",
-        "description": "Choose each page once, in order. Use none to disable a slot. The default page must be enabled. Titles allow 48 UTF-8 bytes.",
+        "description": "Choose up to five page slots in order; each built-in page can be selected once. Use none to disable a slot. The default page must be enabled. Titles allow 48 UTF-8 bytes.",
         "data": {
           "page1": "Page slot 1",
           "page2": "Page slot 2",
           "page3": "Page slot 3",
+          "page4": "Page slot 4",
+          "page5": "Page slot 5",
           "default_page": "Startup page",
           "weather_title": "Weather title",
           "media_title": "Media title",
-          "buttons_title": "Buttons title"
+          "buttons_title": "Buttons title",
+          "about_title": "About page title"
         }
       },
       "grid": {
@@ -173,6 +176,7 @@
     },
     "error": {
       "invalid_pages": "Select unique pages and an enabled startup page; titles allow 48 UTF-8 bytes.",
+      "invalid_panel_hostname": "Use 1-32 lowercase ASCII letters, numbers, or hyphens; do not start or end with a hyphen.",
       "invalid_update_api_url": "Enter an HTTPS URL no longer than 512 characters, or leave it empty to disable update checks.",
       "invalid_config": "Check configuration keys, entity IDs, page order, startup page, label lengths, and panel topic. Existing entries must keep their topic."
     }
@@ -198,7 +202,7 @@
         "title": "Panel and media player",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel name",
+          "panel_name": "Panel hostname",
           "media_entity": "Media player",
           "media_power_switch": "Media power switch (optional)"
         }
@@ -299,22 +303,25 @@
         "title": "Panel and media player",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel name",
+          "panel_name": "Panel hostname",
           "media_entity": "Media player",
           "media_power_switch": "Media power switch (optional)"
         }
       },
       "pages": {
         "title": "Pages and navigation",
-        "description": "Choose each page once, in order. Use none to disable a slot. The default page must be enabled. Titles allow 48 UTF-8 bytes.",
+        "description": "Choose up to five page slots in order; each built-in page can be selected once. Use none to disable a slot. The default page must be enabled. Titles allow 48 UTF-8 bytes.",
         "data": {
           "page1": "Page slot 1",
           "page2": "Page slot 2",
           "page3": "Page slot 3",
+          "page4": "Page slot 4",
+          "page5": "Page slot 5",
           "default_page": "Startup page",
           "weather_title": "Weather title",
           "media_title": "Media title",
-          "buttons_title": "Buttons title"
+          "buttons_title": "Buttons title",
+          "about_title": "About page title"
         }
       },
       "grid": {
@@ -345,6 +352,7 @@
     },
     "error": {
       "invalid_pages": "Select unique pages and an enabled startup page; titles allow 48 UTF-8 bytes.",
+      "invalid_panel_hostname": "Use 1-32 lowercase ASCII letters, numbers, or hyphens; do not start or end with a hyphen.",
       "invalid_config": "Check configuration keys, entity IDs, page order, startup page, label lengths, and panel topic. Existing entries must keep their topic."
     }
   },
@@ -352,6 +360,13 @@
     "firmware_update_available": {
       "title": "Firmware update for {panel_name}: {current_version} to {latest_version}",
       "fix_flow": {
+        "abort": {
+            "update_started": "The update request was sent to {panel_name} for {current_version} to {latest_version}. The repair will clear when the panel reports the new version.",
+          "update_failed": "{panel_name} rejected the update request: {error_detail}",
+          "update_timeout": "No update status was received from {panel_name}. Check that the panel is online and try again.",
+          "update_in_progress": "An update is already running for {panel_name}. Wait for it to finish before trying again.",
+          "update_unavailable": "The update manifest is no longer available. Run the firmware check again."
+        },
         "step": {
           "confirm": {
             "title": "Update {panel_name} from {current_version} to {latest_version}",

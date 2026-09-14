@@ -3,14 +3,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
+import re
 from typing import Any
 
-from awesomeversion import AwesomeVersion, AwesomeVersionStrategy
 from aiohttp import ClientError
 
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 _LOGGER = logging.getLogger(__name__)
+_SEMVER_RE = re.compile(
+    r"^[v]?([0-9]+)\.([0-9]+)\.([0-9]+)"
+    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
 
 
 @dataclass(frozen=True)
@@ -21,17 +26,35 @@ class FirmwareRelease:
     manifest_url: str
 
 
-def _version(value: Any) -> AwesomeVersion | None:
+def _version(value: Any) -> tuple[int, int, int, int, tuple[tuple[int, int | str], ...]] | None:
+    """Parse a SemVer value into a directly comparable key.
+
+    Home Assistant's AwesomeVersion treats multi-part prereleases such as
+    ``1.0.0-rc.14.1`` as incomparable with ``1.0.0-rc.16``. Forgejo tags
+    generated for test builds can contain that form, so compare the SemVer
+    identifiers explicitly here.
+    """
     if not isinstance(value, str):
         return None
     value = value.strip()
-    if value.startswith("v"):
-        value = value[1:]
-    try:
-        parsed = AwesomeVersion(value)
-        return parsed if parsed.strategy is not AwesomeVersionStrategy.UNKNOWN else None
-    except (TypeError, ValueError):
+    match = _SEMVER_RE.fullmatch(value)
+    if match is None:
         return None
+    major, minor, patch, prerelease = match.groups()
+    identifiers: tuple[tuple[int, int | str], ...] = ()
+    if prerelease is not None:
+        parsed_identifiers: list[tuple[int, int | str]] = []
+        for identifier in prerelease.split("."):
+            if identifier.isdigit():
+                if len(identifier) > 1 and identifier.startswith("0"):
+                    return None
+                parsed_identifiers.append((0, int(identifier)))
+            else:
+                parsed_identifiers.append((1, identifier))
+        identifiers = tuple(parsed_identifiers)
+    # Stable releases sort after prereleases. The identifier tuples use a
+    # numeric/string discriminator so Python never compares unlike types.
+    return int(major), int(minor), int(patch), int(prerelease is None), identifiers
 
 
 def _release_candidate(release: Any) -> FirmwareRelease | None:
@@ -74,7 +97,7 @@ async def async_latest_release(hass, api_url: str) -> FirmwareRelease | None:
     candidates = [candidate for item in releases if (candidate := _release_candidate(item)) is not None]
     if not candidates:
         return None
-    return max(candidates, key=lambda item: _version(item.version) or AwesomeVersion("0.0.0"))
+    return max(candidates, key=lambda item: _version(item.version) or (0, 0, 0, 0, ()))
 
 
 def is_newer(current: str, release: FirmwareRelease) -> bool:

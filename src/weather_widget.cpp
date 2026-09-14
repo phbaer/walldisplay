@@ -14,6 +14,9 @@
 #define UI_WEATHER_CURVE_POINTS ((UI_WEATHER_TREND_SAMPLES - 1) * 4 + 1)
 #define UI_WEATHER_CURVE_WIDTH 294
 #define UI_WEATHER_CURVE_HEIGHT 38
+#define UI_WEATHER_METRICS_X 264
+#define UI_WEATHER_CARD_WIDTH 112
+#define UI_WEATHER_CARD_GAP 8
 static bool text_contains_ci(const char *text, const char *needle) {
     if (text == NULL || needle == NULL) {
         return false;
@@ -77,7 +80,7 @@ lv_obj_t *s_forecast_temperature_labels[UI_FORECAST_DAYS]{};
 lv_obj_t *create(lv_obj_t *parent) {
     lv_obj_t *page = lv_obj_create(parent);
     style_panel(page, UI_COLOR_SURFACE_ALT, 14);
-    lv_obj_set_size(page, UI_CONTENT_WIDTH, UI_MAIN_COMPACT_HEIGHT);
+    lv_obj_set_size(page, UI_MAIN_CONTENT_WIDTH, UI_MAIN_COMPACT_HEIGHT);
     lv_obj_set_style_pad_all(page, 16, 0);
     lv_obj_clear_flag(page, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -132,15 +135,15 @@ lv_obj_t *create(lv_obj_t *parent) {
     for (size_t i = 0; i < UI_FORECAST_DAYS; ++i) {
         lv_obj_t *card = lv_obj_create(page);
         lv_obj_remove_style_all(card);
-        lv_obj_set_size(card, 132, 72);
+        lv_obj_set_size(card, UI_WEATHER_CARD_WIDTH, 72);
         lv_obj_set_style_bg_color(card, lv_color_hex(UI_COLOR_CONTROL), 0);
         lv_obj_set_style_bg_opa(card, LV_OPA_70, 0);
         lv_obj_set_style_radius(card, 10, 0);
-        lv_obj_align(card, LV_ALIGN_BOTTOM_LEFT, (int) i * 142, 0);
+        lv_obj_align(card, LV_ALIGN_BOTTOM_LEFT, (int) i * (UI_WEATHER_CARD_WIDTH + UI_WEATHER_CARD_GAP), 0);
 
         s_forecast_day_labels[i] = lv_label_create(card);
         lv_label_set_text(s_forecast_day_labels[i], default_days[i]);
-        lv_obj_set_width(s_forecast_day_labels[i], 116);
+        lv_obj_set_width(s_forecast_day_labels[i], UI_WEATHER_CARD_WIDTH - 16);
         lv_obj_set_style_text_font(s_forecast_day_labels[i], font_ui_14(), 0);
         lv_obj_set_style_text_color(s_forecast_day_labels[i], lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
         lv_obj_align(s_forecast_day_labels[i], LV_ALIGN_TOP_LEFT, 8, 6);
@@ -210,7 +213,7 @@ esp_err_t update(const char *weather_text) override {
         else if (unit[0] != '\0') snprintf(metric_text, sizeof(metric_text), "%.0f %s", metric_values[i]->valuedouble, unit);
         else snprintf(metric_text, sizeof(metric_text), "%.0f", metric_values[i]->valuedouble);
         lv_label_set_text(s_weather_metric_labels[i], metric_text);
-        lv_obj_align(s_weather_metric_containers[i], LV_ALIGN_TOP_LEFT, 310, 48 + (int) (visible_metrics++ * 20));
+        lv_obj_align(s_weather_metric_containers[i], LV_ALIGN_TOP_LEFT, UI_WEATHER_METRICS_X, 48 + (int) (visible_metrics++ * 20));
         lv_obj_clear_flag(s_weather_metric_containers[i], LV_OBJ_FLAG_HIDDEN);
     }
     lv_label_set_text(s_weather_temperature_label, temperature_text);

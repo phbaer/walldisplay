@@ -97,10 +97,10 @@ def main(argv: list[str]) -> int:
         raise ValueError("homeassistant.enable_discovery must be true or false")
 
     display = config.get("display", {})
-    pages = [display.get(f"page{i}", default) for i, default in enumerate(("weather", "media", "none"), 1)]
+    pages = [display.get(f"page{i}", default) for i, default in enumerate(("weather", "media", "none", "none", "none"), 1)]
     pages = [page for page in pages if page != "none"]
     initial = display.get("default_page", "weather")
-    names = ("weather", "media", "buttons")
+    names = ("weather", "media", "buttons", "about")
     if not pages or any(page not in names for page in pages) or len(set(pages)) != len(pages) or initial not in pages:
         raise ValueError("display requires unique enabled pages and an enabled default_page")
     titles = {name: display.get(f"{name}_title", name.title()) for name in names}

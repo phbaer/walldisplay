@@ -27,9 +27,41 @@ class FirmwareUpdateRepairFlow(RepairsFlow):
             topic = self._data.get("topic")
             manifest_url = self._data.get("manifest_url")
             if not isinstance(topic, str) or not isinstance(manifest_url, str):
-                return self.async_abort(reason="update_unavailable")
-            await mqtt.async_publish(self.hass, f"{topic}/cmd/update", manifest_url, 1, False)
-            return self.async_create_entry(data={})
+                return self.async_abort(
+                    reason="update_unavailable",
+                    description_placeholders=self.description_placeholders,
+                )
+            runtime = next(
+                (getattr(entry, "runtime_data", None)
+                 for entry in self.hass.config_entries.async_entries("walldisplay_sync")
+                 if getattr(entry, "entry_id", None) == self._data.get("entry_id")),
+                None,
+            )
+            if runtime is not None:
+                async with runtime.update_lock:
+                    if runtime.update_running:
+                        return self.async_abort(
+                            reason="update_in_progress",
+                            description_placeholders=self.description_placeholders,
+                        )
+                    runtime.update_running = True
+                    runtime.update_target = str(self._data.get("latest_version", ""))
+                    try:
+                        await mqtt.async_publish(self.hass, f"{topic}/cmd/update", manifest_url, 1, False)
+                    except Exception as err:
+                        runtime.update_running = False
+                        runtime.update_target = ""
+                        self.description_placeholders["error_detail"] = str(err)
+                        return self.async_abort(
+                            reason="update_failed",
+                            description_placeholders=self.description_placeholders,
+                        )
+            else:
+                await mqtt.async_publish(self.hass, f"{topic}/cmd/update", manifest_url, 1, False)
+            return self.async_abort(
+                reason="update_started",
+                description_placeholders=self.description_placeholders,
+            )
         return self.async_show_form(
             step_id="confirm",
             data_schema=vol.Schema({}),

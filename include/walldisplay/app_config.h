@@ -10,10 +10,14 @@
 #define APP_DEVICE_NAME "Guition Wall Panel"
 #define APP_DEVICE_MODEL "ESP32-4848S040"
 #define APP_MANUFACTURER "Guition"
-/* Generated from pyproject.toml by tools/sync_project_version.py. */
+/* Generated from pyproject.toml by tools/sync_project_version.py.
+ * Tagged release builds may override this at compile time with their exact
+ * release tag, while the checked-in development version remains canonical. */
+#ifndef APP_FW_VERSION
 #define APP_FW_VERSION "1.0.0"
+#endif
 /* Increment whenever MQTT topics, payloads, or semantics change. */
-#define APP_CONTRACT_VERSION "7"
+#define APP_CONTRACT_VERSION "9"
 
 #define APP_WIFI_MAX_SSID_LEN 32
 #define APP_WIFI_MAX_PASSWORD_LEN 64
@@ -26,6 +30,7 @@ typedef enum {
     APP_DEFAULT_PAGE_WEATHER,
     APP_DEFAULT_PAGE_MEDIA,
     APP_DEFAULT_PAGE_BUTTONS,
+    APP_DEFAULT_PAGE_ABOUT,
 } app_default_page_t;
 
 typedef struct {

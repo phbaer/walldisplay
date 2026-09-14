@@ -2,13 +2,14 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define PANEL_PAGE_COUNT 3
+#define PANEL_PAGE_COUNT 4
+#define PANEL_MAX_PAGES 5
 #define PANEL_PAGE_TITLE_SIZE 49
 #define PANEL_LAYOUT_JSON_SIZE 1024
 
-typedef enum { PANEL_PAGE_WEATHER, PANEL_PAGE_MEDIA, PANEL_PAGE_BUTTONS } panel_page_id_t;
+typedef enum { PANEL_PAGE_WEATHER, PANEL_PAGE_MEDIA, PANEL_PAGE_BUTTONS, PANEL_PAGE_ABOUT } panel_page_id_t;
 typedef struct {
-    panel_page_id_t order[PANEL_PAGE_COUNT];
+    panel_page_id_t order[PANEL_MAX_PAGES];
     size_t count;
     panel_page_id_t default_page;
     char titles[PANEL_PAGE_COUNT][PANEL_PAGE_TITLE_SIZE];

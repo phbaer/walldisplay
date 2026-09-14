@@ -166,7 +166,7 @@ esp_err_t ha_discovery_publish_page_options(esp_mqtt_client_handle_t client) {
     cJSON_AddStringToObject(root, "cmd_t", command_topic);
     cJSON_AddStringToObject(root, "stat_t", state_topic);
     cJSON_AddStringToObject(root, "avty_t", availability_topic);
-    const char *options[PANEL_PAGE_COUNT];
+    const char *options[PANEL_MAX_PAGES];
     for (size_t i = 0; i < config->layout.count; ++i) options[i] = panel_page_name(config->layout.order[i]);
     cJSON_AddItemToObject(root, "ops", cJSON_CreateStringArray(options, (int)config->layout.count));
     cJSON_AddItemToObject(root, "dev", device);

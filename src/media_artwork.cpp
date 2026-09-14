@@ -67,6 +67,13 @@ public:
     }
 
 private:
+    bool is_current(uint32_t generation) {
+        xSemaphoreTake(mutex_, portMAX_DELAY);
+        const bool current = generation == policy_.generation;
+        xSemaphoreGive(mutex_);
+        return current;
+    }
+
     struct Completion {
         ArtworkService &owner;
         uint32_t generation;
@@ -147,10 +154,14 @@ private:
 
             size_t total = 0;
             int received = 0;
-            while (total < kMaxDownload && (received = esp_http_client_read(client, reinterpret_cast<char *>(download + total), kMaxDownload - total)) > 0) total += static_cast<size_t>(received);
-            bool complete = esp_http_client_is_complete_data_received(client);
+            while (total < kMaxDownload && is_current(request.generation) &&
+                   (received = esp_http_client_read(client, reinterpret_cast<char *>(download + total), kMaxDownload - total)) > 0) {
+                total += static_cast<size_t>(received);
+            }
+            const bool cancelled = !is_current(request.generation);
+            bool complete = !cancelled && esp_http_client_is_complete_data_received(client);
             esp_http_client_cleanup(client);
-            if (!complete || received < 0 || total == 0) continue;
+            if (cancelled || !complete || received < 0 || total == 0) continue;
 
             DecodeContext context{};
             context.data = download;
@@ -200,4 +211,8 @@ extern "C" esp_err_t media_artwork_init(void) {
 
 extern "C" esp_err_t media_artwork_request(const char *url) {
     return s_artwork_service.request(url);
+}
+
+extern "C" esp_err_t media_artwork_cancel(void) {
+    return s_artwork_service.request("");
 }

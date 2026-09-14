@@ -7,6 +7,7 @@ int main(void) {
     panel_layout_t layout;
     panel_layout_defaults(&layout);
     assert(layout.count == 2);
+    assert(strcmp(layout.titles[PANEL_PAGE_ABOUT], "About") == 0);
     assert(panel_layout_next(&layout, PANEL_PAGE_WEATHER) == PANEL_PAGE_MEDIA);
     assert(panel_layout_next(&layout, PANEL_PAGE_MEDIA) == PANEL_PAGE_WEATHER);
     panel_page_id_t legacy;
@@ -38,5 +39,9 @@ int main(void) {
     assert(panel_layout_parse("{\"pages\":[\"buttons\"],\"default_page\":\"buttons\"}", &layout));
     assert(panel_layout_next(&layout, PANEL_PAGE_BUTTONS) == PANEL_PAGE_BUTTONS);
     assert(!panel_layout_contains(&layout, PANEL_PAGE_MEDIA));
+    assert(panel_page_parse("about", &legacy) && legacy == PANEL_PAGE_ABOUT);
+    assert(panel_layout_parse("{\"pages\":[\"weather\",\"media\",\"buttons\",\"about\"],\"default_page\":\"about\"}", &layout));
+    assert(layout.count == 4 && layout.default_page == PANEL_PAGE_ABOUT);
+    assert(panel_layout_next(&layout, PANEL_PAGE_BUTTONS) == PANEL_PAGE_ABOUT);
     puts("Page manager tests passed");
 }
