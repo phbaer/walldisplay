@@ -55,7 +55,7 @@ jobs:
           REPOSITORY: ${{ forgejo.repository }}
         run: python tools/firmware_release.py package --version "$VERSION" --server "$SERVER" --repo "$REPOSITORY"
       - name: Upload build artifacts
-        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        uses: https://data.forgejo.org/actions/upload-artifact@v7
         with:
           name: firmware-${{ steps.release.outputs.version }}-${{ forgejo.run_id }}-${{ forgejo.run_attempt }}
           path: dist/*
@@ -123,7 +123,7 @@ jobs:
           /tmp/git-cliff-venv/bin/git-cliff --tag "$VERSION" --output dist/CHANGELOG.md
           /tmp/git-cliff-venv/bin/git-cliff --latest --strip all > release-notes.md
       - name: Upload build artifacts
-        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        uses: https://data.forgejo.org/actions/upload-artifact@v7
         with:
           name: firmware-${{ steps.release.outputs.version }}-${{ forgejo.run_id }}-${{ forgejo.run_attempt }}
           path: dist/*
