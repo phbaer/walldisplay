@@ -49,8 +49,9 @@ class FirmwareReleaseTests(unittest.TestCase):
                         def create_factory(command, check):
                             Path(command[command.index('--output') + 1]).write_bytes(b'factory image')
                         merge.side_effect = create_factory
-                        release.package('v1.0.0-rc.1', 'https://forge.example', 'owner/repo')
-                        release.package('dev-123', '', '', dist=Path('dev-dist'))
+                        with patch.object(release.shutil, 'which', return_value='esptool'):
+                            release.package('v1.0.0-rc.1', 'https://forge.example', 'owner/repo')
+                            release.package('dev-123', '', '', dist=Path('dev-dist'))
                         self.assertEqual(merge.call_count, 2)
                         self.assertIn('merge-bin', merge.call_args_list[0].args[0])
                 metadata = json.loads(Path('dist/walldisplay-v1.0.0-rc.1.json').read_text())

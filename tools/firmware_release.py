@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import sys
 import tarfile
 from urllib.error import HTTPError
 from urllib.parse import quote
@@ -46,8 +45,11 @@ def package(version, server, repo, build=Path('build'), dist=Path('dist')):
     name = f'walldisplay-{version}'
     shutil.copyfile(image, dist / f'{name}.bin')
     factory = dist / f'{name}-factory.bin'
+    esptool = shutil.which('esptool')
+    if esptool is None:
+        raise RuntimeError('esptool executable is required to create the merged factory image')
     subprocess.run([
-        sys.executable, '-m', 'esptool', '--chip', 'esp32s3', 'merge-bin',
+        esptool, '--chip', 'esp32s3', 'merge-bin',
         '--output', str(factory), '--flash-mode', 'dio', '--flash-freq', '80m',
         '--flash-size', 'keep',
         '0x0', str(build / 'bootloader/bootloader.bin'),
