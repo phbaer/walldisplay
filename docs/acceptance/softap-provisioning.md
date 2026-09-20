@@ -10,7 +10,7 @@ Run this before touching a device:
 
 ```sh
 PYTHONPATH=. uv run python tools/acceptance_check.py \
-  --factory dist/walldisplay-<version>-factory.tar.gz \
+  --factory dist/walldisplay-<version>-factory.bin \
   --image build/walldisplay.bin \
   --manifest dist/walldisplay-<version>.json
 ```
@@ -22,7 +22,7 @@ tokens as the generic artifact.
 ## Clean-device test
 
 Record the image version, panel MAC, tester, date, and broker used. Flash the
-factory archive to a panel with erased application configuration. Confirm that
+merged factory image to a panel with erased application configuration. Confirm that
 the panel starts a WPA2 AP with a device-specific SSID and password, and that
 `http://192.168.4.1/` loads from a phone. Use **Refresh networks**, select an
 SSID, and verify that the password field stays unchanged. Confirm that the

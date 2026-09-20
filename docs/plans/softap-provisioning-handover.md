@@ -4,7 +4,7 @@ This document hands the next feature branch the work needed to make a generic si
 
 ## Desired user experience
 
-1. The user downloads a signed factory archive and flashes it over USB.
+1. The user downloads a signed factory image and flashes it over USB.
 2. A panel with no valid stored network configuration starts a local setup access point, for example `WallDisplay-AB12`.
 3. The user connects a phone or laptop, opens the captive portal at `192.168.4.1`, and enters Wi-Fi and MQTT settings.
 4. The panel validates the settings, stores them, stops the access point, and connects to Home Assistant through MQTT Discovery.
@@ -94,4 +94,4 @@ The physical acceptance and production sign-off procedure is maintained in
 [docs/acceptance/softap-provisioning.md](../acceptance/softap-provisioning.md).
 It covers clean-device provisioning, negative/recovery cases, power-loss
 behavior, and signed OTA rollback; passing that procedure is required before a
-generic factory archive is called production-ready.
+generic factory image is called production-ready.
