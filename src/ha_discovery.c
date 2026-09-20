@@ -39,6 +39,14 @@ static void make_unique_id(char *dest, size_t dest_size, const char *suffix) {
     }
 }
 
+static void make_device_name(char *dest, size_t dest_size, const app_config_t *config) {
+    if (config->display_name[0] != '\0') {
+        snprintf(dest, dest_size, "%s (%s)", APP_DEVICE_NAME, config->display_name);
+    } else {
+        strlcpy(dest, APP_DEVICE_NAME, dest_size);
+    }
+}
+
 static esp_err_t publish_discovery(esp_mqtt_client_handle_t client,
                                    const char *component,
                                    const char *object_suffix,
@@ -51,7 +59,9 @@ static esp_err_t publish_discovery(esp_mqtt_client_handle_t client,
     char availability_topic[APP_TOPIC_MAX_LEN + 16];
     char command_topic[APP_TOPIC_MAX_LEN + 32];
     char state_topic[APP_TOPIC_MAX_LEN + 32];
+    char device_name[sizeof(APP_DEVICE_NAME) + APP_DISPLAY_NAME_MAX_LEN + 4];
     make_unique_id(object_id, sizeof(object_id), object_suffix);
+    make_device_name(device_name, sizeof(device_name), config);
     snprintf(topic, sizeof(topic), "%s/%s/%s/config", config->discovery_prefix, component, object_id);
     snprintf(availability_topic, sizeof(availability_topic), "%s/status", config->base_topic);
 
@@ -69,7 +79,7 @@ static esp_err_t publish_discovery(esp_mqtt_client_handle_t client,
     }
     cJSON_AddStringToObject(root, "avty_t", availability_topic);
     cJSON_AddItemToObject(root, "dev", device);
-    cJSON_AddStringToObject(device, "name", APP_DEVICE_NAME);
+    cJSON_AddStringToObject(device, "name", device_name);
     cJSON_AddStringToObject(device, "mdl", APP_DEVICE_MODEL);
     cJSON_AddStringToObject(device, "mf", APP_MANUFACTURER);
     cJSON_AddStringToObject(device, "sw", APP_FW_VERSION);
@@ -104,7 +114,9 @@ static esp_err_t publish_device_diagnostic(esp_mqtt_client_handle_t client,
     char state_topic[APP_TOPIC_MAX_LEN + 32];
     char availability_topic[APP_TOPIC_MAX_LEN + 16];
     char value_template[64];
+    char device_name[sizeof(APP_DEVICE_NAME) + APP_DISPLAY_NAME_MAX_LEN + 4];
     make_unique_id(object_id, sizeof(object_id), object_suffix);
+    make_device_name(device_name, sizeof(device_name), config);
     snprintf(topic, sizeof(topic), "%s/sensor/%s/config", config->discovery_prefix, object_id);
     snprintf(state_topic, sizeof(state_topic), "%s/state/device", config->base_topic);
     snprintf(availability_topic, sizeof(availability_topic), "%s/status", config->base_topic);
@@ -128,7 +140,7 @@ static esp_err_t publish_device_diagnostic(esp_mqtt_client_handle_t client,
         cJSON_AddStringToObject(root, "icon", icon);
     }
     cJSON_AddItemToObject(root, "dev", device);
-    cJSON_AddStringToObject(device, "name", APP_DEVICE_NAME);
+    cJSON_AddStringToObject(device, "name", device_name);
     cJSON_AddStringToObject(device, "mdl", APP_DEVICE_MODEL);
     cJSON_AddStringToObject(device, "mf", APP_MANUFACTURER);
     cJSON_AddStringToObject(device, "sw", APP_FW_VERSION);
@@ -153,7 +165,9 @@ esp_err_t ha_discovery_publish_page_options(esp_mqtt_client_handle_t client) {
     char command_topic[APP_TOPIC_MAX_LEN + 32];
     char state_topic[APP_TOPIC_MAX_LEN + 32];
     char availability_topic[APP_TOPIC_MAX_LEN + 16];
+    char device_name[sizeof(APP_DEVICE_NAME) + APP_DISPLAY_NAME_MAX_LEN + 4];
     make_unique_id(object_id, sizeof(object_id), "default_page");
+    make_device_name(device_name, sizeof(device_name), config);
     snprintf(topic, sizeof(topic), "%s/select/%s/config", config->discovery_prefix, object_id);
     snprintf(command_topic, sizeof(command_topic), "%s/cmd/config/default_page", config->base_topic);
     snprintf(state_topic, sizeof(state_topic), "%s/state/config/default_page", config->base_topic);
@@ -170,7 +184,7 @@ esp_err_t ha_discovery_publish_page_options(esp_mqtt_client_handle_t client) {
     for (size_t i = 0; i < config->layout.count; ++i) options[i] = panel_page_name(config->layout.order[i]);
     cJSON_AddItemToObject(root, "ops", cJSON_CreateStringArray(options, (int)config->layout.count));
     cJSON_AddItemToObject(root, "dev", device);
-    cJSON_AddStringToObject(device, "name", APP_DEVICE_NAME);
+    cJSON_AddStringToObject(device, "name", device_name);
     cJSON_AddStringToObject(device, "mdl", APP_DEVICE_MODEL);
     cJSON_AddStringToObject(device, "mf", APP_MANUFACTURER);
     cJSON_AddStringToObject(device, "sw", APP_FW_VERSION);
