@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -54,6 +55,13 @@ def package(version, server, repo, build=Path('build'), dist=Path('dist')):
         '0x14000', str(build / 'ota_data_initial.bin'),
         '0x30000', str(image),
     ], check=True)
+    with tarfile.open(dist / f'{name}-factory.tar.gz', 'w:gz') as archive:
+        for source, target in [(image, 'walldisplay.bin'),
+                               (build / 'bootloader/bootloader.bin', 'bootloader.bin'),
+                               (build / 'partition_table/partition-table.bin', 'partition-table.bin'),
+                               (build / 'ota_data_initial.bin', 'ota_data_initial.bin'),
+                               (Path('partitions.csv'), 'partitions.csv')]:
+            archive.add(source, arcname=target)
     metadata = {'version': version, 'target': 'esp32s3',
                 'sha256': hashlib.sha256(image.read_bytes()).hexdigest(),
                 'size': image.stat().st_size, 'build': git('rev-parse', 'HEAD')}

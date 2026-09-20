@@ -7,7 +7,7 @@ Firmware for the ESP32-4848S040 wall panel, built with ESP-IDF, LVGL, MQTT, and 
 Signed firmware releases are published on the [Forgejo releases page](https://git.baer.one/phbaer/walldisplay/releases). A normal user does not need ESP-IDF or this source tree to flash a release:
 
 1. Confirm that the panel is an ESP32-S3 Guition ESP32-4848S040 with 16 MB flash, and connect its USB port. Use a data-capable USB cable.
-2. Open the release you want and download both `walldisplay-<version>-factory.bin` and `walldisplay-<version>.bin`. The factory image is a complete flash image; the application image is for signed OTA updates.
+2. Open the release you want and download `walldisplay-<version>-factory.bin` for normal factory flashing and `walldisplay-<version>.bin` for signed OTA updates. The release also includes `walldisplay-<version>-factory.tar.gz` with the individual partition files for advanced recovery or selective flashing.
 3. Install Espressif's `esptool` in a temporary Python environment:
 
    ```sh
@@ -27,6 +27,8 @@ Signed firmware releases are published on the [Forgejo releases page](https://gi
    A factory flash replaces the firmware partitions but does not create Wi-Fi or MQTT credentials. After reboot, continue with [Initial setup](#initial-setup) and [Home Assistant](#home-assistant).
 
 The public CI artifacts are signed and can be configured on first boot through the local setup AP. Existing panels that already have a trusted signed baseline can use the application-only `.bin` through the integration's Repairs update flow. Before advertising a generic factory image as production-ready, run the [SoftAP provisioning acceptance procedure](docs/acceptance/softap-provisioning.md); the provisioning design is captured in the [SoftAP provisioning handover](docs/plans/softap-provisioning-handover.md).
+
+For advanced recovery, unpack the factory archive and flash its individual files at the offsets in `partitions.csv`; the current layout uses bootloader `0x0000`, partition table `0x8000`, OTA data `0x14000`, and application `0x30000`. The merged factory image is the recommended normal-user path.
 
 ## Build and configuration
 
@@ -236,7 +238,7 @@ Build behavior:
 | Trigger | Result | Signing |
 | --- | --- | --- |
 | Branch push, PR, or manual run with empty `release_tag` | `dev-<checked-out SHA>` workflow artifacts, retained for 14 days | Unsigned; remote OTA disabled |
-| Tag such as `v1.0.0-beta.1` or `v1.0.0-rc.1` | Prerelease with firmware, factory image, changelog, and OTA manifest | Required |
+| Tag such as `v1.0.0-beta.1` or `v1.0.0-rc.1` | Prerelease with update image, merged factory image, partition archive, changelog, and OTA manifest | Required |
 | Tag such as `v1.0.0` | Stable release with the same assets | Required |
 
 To publish a test build from the current commit:
@@ -250,7 +252,7 @@ Push the tag to your Forgejo remote to publish firmware (`origin` in the example
 
 If a tag was already mirrored before the workflow commit, no new GitHub push event occurs. A maintainer can manually run the HACS workflow with `ref` set to the tagged commit and `tag` set to the existing release tag; this is also the recovery path for an existing release. The firmware workflow verifies that its checked-out commit matches an exact tag. Tags use `vMAJOR.MINOR.PATCH` with an optional SemVer prerelease suffix and must fit the firmware's 32-character manifest version limit. The checked-in project and blueprint version remains the canonical `1.0.0`, while each tagged firmware build embeds its exact tag (for example `v1.0.0-rc.8`) in `APP_FW_VERSION`. Home Assistant can therefore order successive release candidates correctly; the stable `v1.0.0` image reports the stable version and is not offered an older RC.
 
-Download ordinary test packages from the workflow run's artifacts. They contain a binary, factory image (including initial OTA data), and build metadata; they deliberately have no OTA manifest pointing at a nonexistent release. Published manifests contain the checked-out commit SHA and the hash and size of the final signed binary. To test OTA, explicitly select the prerelease manifest URL and use the key already trusted by the panel. A prerelease label does not restrict firmware installation.
+Download ordinary test packages from the workflow run's artifacts. They contain the update image, merged factory image, partition archive, and build metadata; they deliberately have no OTA manifest pointing at a nonexistent release. Published manifests contain the checked-out commit SHA and the hash and size of the final signed binary. To test OTA, explicitly select the prerelease manifest URL and use the key already trusted by the panel. A prerelease label does not restrict firmware installation.
 
 Publish a new `rc.2`, `rc.3`, etc. for each revision. Firmware publishing refuses existing firmware assets and never overwrites them; protect `v*` tags against unauthorized creation, movement, and deletion in repository settings. Restrict manual release runs and changes to release workflows to trusted maintainers. Use isolated runners for untrusted PR builds, especially on self-hosted Forgejo. Job conditions separate routine builds from signing but do not replace host-level access controls. Keep the firmware signing secret on Forgejo only.
 

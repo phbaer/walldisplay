@@ -6,6 +6,7 @@ import os
 import io
 from pathlib import Path
 import tempfile
+import tarfile
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -60,6 +61,9 @@ class FirmwareReleaseTests(unittest.TestCase):
                 dev = json.loads(Path('dev-dist/walldisplay-dev-123-build-info.json').read_text())
                 self.assertNotIn('url', dev)
                 self.assertEqual(Path('dist/walldisplay-v1.0.0-rc.1-factory.bin').read_bytes(), b'factory image')
+                with tarfile.open('dist/walldisplay-v1.0.0-rc.1-factory.tar.gz') as archive:
+                    self.assertEqual(len(archive.getnames()), 5)
+                    self.assertIn('ota_data_initial.bin', archive.getnames())
                 with self.assertRaises(FileExistsError):
                     release.package('v1.0.0', '', '')
             finally:
