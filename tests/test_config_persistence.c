@@ -20,6 +20,8 @@ static char saved[PANEL_LAYOUT_JSON_SIZE], pending[PANEL_LAYOUT_JSON_SIZE];
 static int writes;
 static bool fail_commit;
 esp_err_t nvs_flash_init_partition(const char *name) { (void)name; return ESP_ERR_NOT_FOUND; }
+esp_err_t nvs_flash_deinit_partition(const char *name) { (void)name; return ESP_OK; }
+esp_err_t nvs_flash_erase_partition(const char *name) { (void)name; return ESP_OK; }
 esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *handle) { (void)name; (void)mode; *handle=1; return ESP_OK; }
 esp_err_t nvs_open_from_partition(const char *p, const char *n, int m, nvs_handle_t *h) { (void)p; (void)n; (void)m; (void)h; return ESP_ERR_NVS_NOT_FOUND; }
 esp_err_t nvs_get_str(nvs_handle_t h, const char *key, char *out, size_t *size) {

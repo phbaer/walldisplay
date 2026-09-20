@@ -9,6 +9,7 @@
 
 #include <string.h>
 #include <ctype.h>
+#include <stdio.h>
 
 static const char *TAG = "app_config";
 static const char *APP_CONFIG_PARTITION = "appcfg";
