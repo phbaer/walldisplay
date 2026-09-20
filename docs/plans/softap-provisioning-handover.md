@@ -4,7 +4,7 @@ This document hands the next feature branch the work needed to make a generic si
 
 ## Desired user experience
 
-1. The user downloads a signed factory archive and flashes it over USB.
+1. The user downloads a signed factory image and flashes it over USB.
 2. A panel with no valid stored network configuration starts a local setup access point, for example `WallDisplay-AB12`.
 3. The user connects a phone or laptop, opens the captive portal at `192.168.4.1`, and enters Wi-Fi and MQTT settings.
 4. The panel validates the settings, stores them, stops the access point, and connects to Home Assistant through MQTT Discovery.
@@ -52,7 +52,7 @@ Do not make MQTT a prerequisite for initial provisioning. The panel must be able
 
 ## Implementation order
 
-1. Create a feature branch from the merged current release and record its one selected firmware/blueprint version. Retain MQTT contract `7` unless the design adds MQTT provisioning topics, in which case select the next contract version once and keep it for the branch.
+1. Create a feature branch from the merged current release and record its one selected firmware/blueprint version. The onboarding branch uses firmware/blueprint `1.1.0` and MQTT contract `10`; retain these values for every commit in the branch.
 2. Add and pin `espressif/network_provisioning` in `src/idf_component.yml`; enable only the required protocomm security scheme(s), with Security 2 preferred for production.
 3. Extend `app_config` with bounded provisioning records, migration/default handling, transactional writes, and a clear/reset operation. Add native tests for reboot, failed commit, invalid input, and precedence.
 4. Refactor `wifi_manager` startup into explicit states: provisioned station, provisioning AP, connection test, and rollback. Ensure MQTT and OTA tasks cannot start with incomplete credentials.
@@ -82,10 +82,16 @@ Do not make MQTT a prerequisite for initial provisioning. The panel must be able
 - Verify both MQTT Sync and `walldisplay_sync` remain available and no panel runs both paths for the same topic.
 - Update `README.md`, `config/panel_config.example.yaml`, relevant examples, release metadata, and the deployment copy. Run the full native/Python/YAML checks and commit each verified implementation step.
 
-## Open decisions for the feature branch
+## Resolved decisions for the feature branch
 
-- Browser-only captive portal versus the official provisioning client protocol with a companion app/client.
-- Whether MQTT credentials are always required during first boot or can be added later through the portal.
-- Whether CA certificates are pasted into the form, selected from a small built-in set, or provisioned as a bounded PEM.
-- The physical gesture and user-visible reset procedure for reprovisioning.
-- Whether NVS encryption is in scope. The current project deliberately does not enable flash encryption or Secure Boot eFuses.
+- Use a browser-only captive portal protected by the unique WPA2 AP password.
+- Wi-Fi is required; MQTT settings are optional and can be added later.
+- The portal accepts a bounded PEM CA certificate and stores it with the runtime network configuration. A blank field removes the runtime override and restores the built-in CA bundle. The Home Assistant MQTT Sync and `walldisplay_sync` paths continue to manage panel data; certificate provisioning remains a local portal operation so broker trust material is never sent through MQTT.
+- Re-enable the AP intentionally through the authenticated MQTT command; manually enabled AP sessions expire after 15 minutes of inactivity.
+- NVS encryption is out of scope. The current project deliberately does not enable flash encryption or Secure Boot eFuses.
+
+The physical acceptance and production sign-off procedure is maintained in
+[docs/acceptance/softap-provisioning.md](../acceptance/softap-provisioning.md).
+It covers clean-device provisioning, negative/recovery cases, power-loss
+behavior, and signed OTA rollback; passing that procedure is required before a
+generic factory image is called production-ready.

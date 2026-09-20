@@ -9,11 +9,6 @@ on:
 permissions:
   contents: write
 
-env:
-  # Keep this greater than the latest stable HACS release. Update it when the
-  # next integration release version is selected.
-  HACS_PRERELEASE_BASE_VERSION: "0.4.0"
-
 jobs:
   publish:
     if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch
@@ -34,7 +29,13 @@ jobs:
           BRANCH_NAME: ${{ github.ref_name }}
         run: |
           branch_id=$(printf '%s' "$BRANCH_NAME" | cksum | awk '{print $1}')
-          echo "PREVIEW_TAG=v${HACS_PRERELEASE_BASE_VERSION}b${branch_id}" >> "$GITHUB_ENV"
+          project_version=$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          print(tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"])
+          PY
+          )
+          echo "PREVIEW_TAG=v${project_version}b${branch_id}" >> "$GITHUB_ENV"
       - name: Replace previous branch preview release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -54,10 +55,19 @@ jobs:
     if: github.event_name == 'delete' && github.event.ref_type == 'branch' && github.event.ref != github.event.repository.default_branch
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
       - name: Delete the branch preview release and tag
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH_NAME: ${{ github.event.ref }}
         run: |
           branch_id=$(printf '%s' "$BRANCH_NAME" | cksum | awk '{print $1}')
-          gh release delete "v${HACS_PRERELEASE_BASE_VERSION}b${branch_id}" --cleanup-tag --yes || true
+          project_version=$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+          print(tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"])
+          PY
+          )
+          gh release delete "v${project_version}b${branch_id}" --cleanup-tag --yes || true

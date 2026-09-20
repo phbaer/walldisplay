@@ -17,6 +17,7 @@ from .const import (
     CONF_MEDIA_ENTITY,
     CONF_MEDIA_POWER_SWITCH,
     CONF_PANEL_NAME,
+    CONF_PANEL_HOSTNAME,
     CONF_PANEL_TOPIC,
     CONF_SCREEN_OFF_AFTER,
     CONF_TIME_FORMAT,
@@ -57,6 +58,20 @@ def _panel_hostname(value: object) -> str:
     return hostname
 
 
+def _hostname_from_display_name(value: object) -> str:
+    """Generate the station hostname while preserving the human label."""
+    text = str(value).strip().lower()
+    if not text or len(text.encode("utf-8")) > 64 or any(ord(char) < 0x20 or ord(char) == 0x7f for char in text):
+        raise vol.Invalid("Display name must be 1-64 printable UTF-8 bytes")
+    candidate = "".join(char if char.isascii() and char.isalnum() else "-" for char in text)
+    while "--" in candidate:
+        candidate = candidate.replace("--", "-")
+    candidate = candidate[:32].strip("-")
+    if not candidate:
+        raise vol.Invalid("Display name must contain at least one letter or number")
+    return candidate
+
+
 def _hostname_from_topic(value: object) -> str:
     """Create a safe migration fallback for older human-readable names."""
     topic = str(value).strip().rstrip("/")
@@ -92,7 +107,7 @@ def _merge_form(data, user_input, schema):
 def _basic_schema(defaults: dict[str, object]) -> vol.Schema:
     return _form_schema({
         vol.Required(CONF_PANEL_TOPIC, default=defaults.get(CONF_PANEL_TOPIC, "")): str,
-        vol.Optional(CONF_PANEL_NAME, default=defaults.get(CONF_PANEL_NAME, "walldisplay")): str,
+        vol.Optional(CONF_PANEL_NAME, default=defaults.get(CONF_PANEL_NAME, "WallDisplay")): str,
         vol.Optional(CONF_MEDIA_ENTITY, default=defaults.get(CONF_MEDIA_ENTITY, "")): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="media_player")
         ),
@@ -223,7 +238,11 @@ def _grid_schema(defaults):
 def _complete_config(value):
     if not isinstance(value, dict):
         raise vol.Invalid("Configuration must be a mapping")
-    schema = vol.Schema({vol.Optional("schema_version", default=2): vol.In([2])})
+    # `panel_hostname` is derived from the human display name, but accept it
+    # in persisted/configuration payloads so older entries and YAML round trips
+    # remain loadable. It is normalized below and never trusted as input.
+    schema = vol.Schema({vol.Optional("schema_version", default=2): vol.In([2]),
+                         vol.Optional(CONF_PANEL_HOSTNAME, default=""): str})
     for part in (_basic_schema({}), _updates_schema({}), _display_schema({}), _favorites_schema({}),
                  _chip_schema({}, CHIP_COUNT), _footer_schema({}, FOOTER_BUTTON_COUNT),
                  _pages_schema({}), _grid_schema({})):
@@ -237,10 +256,10 @@ def _complete_config(value):
     if not topic or len(topic) > 128 or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/_-" for c in topic):
         raise vol.Invalid("Invalid panel topic")
     data[CONF_PANEL_TOPIC] = topic
-    try:
-        data[CONF_PANEL_NAME] = _panel_hostname(data.get(CONF_PANEL_NAME, ""))
-    except vol.Invalid:
-        raise
+    data[CONF_PANEL_NAME] = str(data.get(CONF_PANEL_NAME, "WallDisplay")).strip()
+    if not data[CONF_PANEL_NAME] or len(data[CONF_PANEL_NAME].encode("utf-8")) > 64:
+        raise vol.Invalid("Display name must be 1-64 UTF-8 bytes")
+    data[CONF_PANEL_HOSTNAME] = _hostname_from_display_name(data[CONF_PANEL_NAME])
     layout_payload(data)
     for slot in range(1, GRID_COUNT + 1):
         if len(data[f"grid{slot}_label"].encode("utf-8")) > 96:
@@ -258,10 +277,11 @@ def migrate_configuration(value):
         raise vol.Invalid("Unsupported configuration schema version")
     if data.get(CONF_PANEL_NAME):
         try:
-            _panel_hostname(data[CONF_PANEL_NAME])
+            data[CONF_PANEL_HOSTNAME] = _hostname_from_display_name(data[CONF_PANEL_NAME])
         except vol.Invalid:
             # Versions before hostname semantics allowed labels such as
             # "Living room". Keep those entries loadable while steering the
             # saved value to the panel topic's stable hostname.
             data[CONF_PANEL_NAME] = _hostname_from_topic(data.get(CONF_PANEL_TOPIC, ""))
+            data[CONF_PANEL_HOSTNAME] = _hostname_from_display_name(data[CONF_PANEL_NAME])
     return _complete_config(data)

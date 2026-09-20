@@ -20,6 +20,7 @@ from .const import (
     CONF_MEDIA_ENTITY,
     CONF_MEDIA_POWER_SWITCH,
     CONF_PANEL_NAME,
+    CONF_PANEL_HOSTNAME,
     CONF_PANEL_TOPIC,
     CONF_WEATHER_ENTITY,
     CONF_TEMPERATURE_ENTITY,
@@ -51,7 +52,7 @@ from .artwork import ArtworkCache, async_register_cache, async_unregister_cache
 from .updates import async_latest_release, is_newer
 
 _LOGGER = logging.getLogger(__name__)
-_PLATFORMS = [Platform.BUTTON, Platform.EVENT]
+_PLATFORMS = [Platform.BUTTON, Platform.EVENT, Platform.SENSOR]
 _UPDATE_ISSUE_PREFIX = "firmware_update_"
 _UPDATE_CHECK_INTERVAL = timedelta(hours=6)
 _UPDATE_RETRY_INTERVAL = timedelta(minutes=5)
@@ -81,6 +82,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     config = migrate_configuration({**entry.data, **entry.options})
     topic = config[CONF_PANEL_TOPIC].rstrip("/")
     panel_name = config.get(CONF_PANEL_NAME, "") or entry.title
+    panel_hostname = config.get(CONF_PANEL_HOSTNAME, "")
     entity_id = config.get(CONF_MEDIA_ENTITY, "")
     power_switch = config.get(CONF_MEDIA_POWER_SWITCH, "")
     weather_entity = config.get(CONF_WEATHER_ENTITY, "")
@@ -196,6 +198,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if generation == media_generation:
             await mqtt.async_publish(hass, f"{topic}/set/media", json.dumps(payload), 1, True)
 
+    async def publish_media_power(_: Event | None = None) -> None:
+        state = hass.states.get(power_switch) if power_switch else None
+        payload = {"configured": bool(power_switch), "state": state.state if state else "off"}
+        await mqtt.async_publish(hass, f"{topic}/set/media/power", json.dumps(payload), 1, True)
+
     async def publish_favorites() -> None:
         for slot in range(1, MEDIA_FAVORITE_COUNT + 1):
             await mqtt.async_publish(hass, f"{topic}/set/media/favorite{slot}/label", config.get(favorite_label_key(slot), ""), 1, True)
@@ -205,7 +212,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await mqtt.async_publish(hass, f"{topic}/set/screenshots_enabled", "ON" if config["screenshots_enabled"] else "OFF", 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/pages", json.dumps(layout_payload(config), ensure_ascii=False), 1, True)
         # Keep the compatibility payload aligned with the generated manifest.
-        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "1.0.0", "contract": "9"}), 1, True)
+        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "1.1.0", "contract": "10"}), 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/name", panel_name, 1, True)
         await mqtt.async_publish(
             hass,
@@ -326,11 +333,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await hass.services.async_call("media_player", "volume_set", {"entity_id": entity_id, "volume_level": volume_level}, blocking=False)
             return
         if command == "power_off":
-            power_switch_state = hass.states.get(power_switch) if power_switch else None
-            if power_switch_state is not None and power_switch_state.state not in {"unknown", "unavailable"}:
-                await hass.services.async_call("switch", "turn_off", {"entity_id": power_switch}, blocking=False)
-            else:
-                await hass.services.async_call("media_player", "turn_off", {"entity_id": entity_id}, blocking=False)
+            if power_switch:
+                _LOGGER.debug("Toggling configured media power switch %s", power_switch)
+                await hass.services.async_call("homeassistant", "toggle", target={"entity_id": power_switch}, blocking=True)
             return
         service = {
             "previous": "media_previous_track",
@@ -398,7 +403,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Each publisher can fail or wait independently of configuration and controls.
         await publish_independently(
             publish_panel_configuration, publish_clock, publish_favorites,
-            publish_chips, publish_footers, publish_grid, publish_media, publish_weather,
+            publish_chips, publish_footers, publish_grid, publish_media, publish_media_power, publish_weather,
         )
 
     async def panel_status(message: mqtt.ReceiveMessage) -> None:
@@ -411,6 +416,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
     if entity_id:
         entry.async_on_unload(async_track_state_change_event(hass, [entity_id], publish_media))
+    if power_switch:
+        entry.async_on_unload(async_track_state_change_event(hass, [power_switch], publish_media_power))
     grid_entities = [config.get(f"grid{i}_state_entity", "") for i in range(1, GRID_COUNT + 1)]
     if any(grid_entities):
         entry.async_on_unload(async_track_state_change_event(hass, [entity for entity in grid_entities if entity], publish_grid))

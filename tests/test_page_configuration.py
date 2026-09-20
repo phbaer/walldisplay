@@ -96,14 +96,14 @@ class PageConfigurationTests(unittest.TestCase):
                        {"weather_title": "é" * 25}, {"grid1_label": "é" * 49},
                        {"grid1_state_entity": "sensor.temperature"}, {"surprise": True},
                        {"panel_topic": "panel/#"}, {"update_api_url": "http://git.example/releases"},
-                       {"panel_name": "Living room"}, {"panel_name": "-living-room"},
-                       {"panel_name": "living_room"}, {"panel_name": "x" * 33}):
+                       {"panel_name": "\x01bad"}, {"panel_name": "!" * 65}):
             with self.subTest(change=change), self.assertRaises((ValueError, vol.Invalid)):
                 _complete_config({"panel_topic": "panel/test", **change})
 
-    def test_panel_hostname_is_normalized(self):
-        config = _complete_config({"panel_topic": "panel/test", "panel_name": "Living-Room"})
-        self.assertEqual(config["panel_name"], "living-room")
+    def test_display_name_is_preserved_and_hostname_generated(self):
+        config = _complete_config({"panel_topic": "panel/test", "panel_name": "Living Room"})
+        self.assertEqual(config["panel_name"], "Living Room")
+        self.assertEqual(config["panel_hostname"], "living-room")
 
     def test_clear_entity_in_form(self):
         data = {"grid1_label": "Lights", "grid1_state_entity": "light.room"}

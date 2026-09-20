@@ -71,6 +71,11 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
     snprintf(topic, sizeof(topic), "%s/state/media", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
+    snprintf(topic, sizeof(topic), "%s/set/media/power", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+    snprintf(topic, sizeof(topic), "%s/state/media/power", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+
     for (int i = 1; i <= 5; ++i) {
         snprintf(topic, sizeof(topic), "%s/set/media/favorite%d/label", config->base_topic, i);
         esp_mqtt_client_subscribe(client, topic, 1);
@@ -86,6 +91,8 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
     esp_mqtt_client_subscribe(client, topic, 1);
 
     snprintf(topic, sizeof(topic), "%s/state/name", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+    snprintf(topic, sizeof(topic), "%s/state/hostname", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
     snprintf(topic, sizeof(topic), "%s/set/clock", config->base_topic);
@@ -114,8 +121,17 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
 
     snprintf(topic, sizeof(topic), "%s/cmd/wake", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
+    snprintf(topic, sizeof(topic), "%s/cmd/config/ap", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
 
     snprintf(topic, sizeof(topic), "%s/cmd/screenshot", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+
+    snprintf(topic, sizeof(topic), "%s/cmd/config/factory_reset", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+    snprintf(topic, sizeof(topic), "%s/cmd/config/reboot", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+    snprintf(topic, sizeof(topic), "%s/cmd/reboot", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
     snprintf(topic, sizeof(topic), "%s/set/screenshots_enabled", config->base_topic);
@@ -178,6 +194,11 @@ static void on_mqtt_connected(esp_mqtt_client_handle_t client, void *user_ctx) {
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/update", "{\"state\":\"idle\",\"version\":\"" APP_FW_VERSION "\"}", true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/contract_version", APP_CONTRACT_VERSION, true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/base_topic", config->base_topic, true));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/name", config->display_name, true));
+    char hostname[33];
+    if (app_config_display_hostname(config->display_name, hostname, sizeof(hostname)) == ESP_OK)
+        ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/hostname", hostname, true));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/ap", wifi_manager_ap_active() ? "ON" : "OFF", true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/default_page", app_config_default_page_name(config->default_page), true));
     char layout_json[PANEL_LAYOUT_JSON_SIZE];
     if (panel_layout_json(&config->layout, layout_json, sizeof(layout_json)))
@@ -248,6 +269,39 @@ static void on_mqtt_message(const char *topic, const char *payload, bool retaine
     snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/wake", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
         display_dimming_wake();
+        return;
+    }
+
+    snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/config/ap", config->base_topic);
+    if (strcmp(topic, expected_topic) == 0) {
+        const esp_err_t err = strcmp(payload, "ON") == 0 ? wifi_manager_start_ap() :
+                              strcmp(payload, "OFF") == 0 ? wifi_manager_stop_ap() : ESP_ERR_INVALID_ARG;
+        if (err == ESP_OK && wifi_manager_ap_active()) (void)ui_show_page("about");
+        ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/ap", err == ESP_OK && wifi_manager_ap_active() ? "ON" : "OFF", true));
+        return;
+    }
+
+    snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/config/factory_reset", config->base_topic);
+    if (strcmp(topic, expected_topic) == 0) {
+        const esp_err_t err = app_config_reset_runtime();
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "Factory reset failed: %s", esp_err_to_name(err));
+            ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/error", "Factory reset failed", true));
+            return;
+        }
+        ESP_LOGW(TAG, "Factory reset requested over MQTT; rebooting into setup AP");
+        vTaskDelay(pdMS_TO_TICKS(250));
+        esp_restart();
+        return;
+    }
+
+    snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/reboot", config->base_topic);
+    char config_reboot_topic[APP_TOPIC_MAX_LEN + 32];
+    snprintf(config_reboot_topic, sizeof(config_reboot_topic), "%s/cmd/config/reboot", config->base_topic);
+    if (strcmp(topic, expected_topic) == 0 || strcmp(topic, config_reboot_topic) == 0) {
+        ESP_LOGW(TAG, "Reboot requested over MQTT");
+        vTaskDelay(pdMS_TO_TICKS(250));
+        esp_restart();
         return;
     }
 
@@ -355,6 +409,18 @@ static void on_mqtt_message(const char *topic, const char *payload, bool retaine
         return;
     }
 
+    snprintf(expected_topic, sizeof(expected_topic), "%s/set/media/power", config->base_topic);
+    const bool set_media_power = strcmp(topic, expected_topic) == 0;
+    snprintf(expected_topic, sizeof(expected_topic), "%s/state/media/power", config->base_topic);
+    if (set_media_power || strcmp(topic, expected_topic) == 0) {
+        if (ui_set_media_power(payload) != ESP_OK) {
+            ESP_LOGW(TAG, "Ignoring invalid media power configuration");
+            return;
+        }
+        if (set_media_power) ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/media/power", payload, true));
+        return;
+    }
+
     for (int i = 1; i <= 5; ++i) {
         snprintf(expected_topic, sizeof(expected_topic), "%s/set/media/favorite%d/label", config->base_topic, i);
         if (strcmp(topic, expected_topic) == 0) {
@@ -386,18 +452,21 @@ static void on_mqtt_message(const char *topic, const char *payload, bool retaine
 
     snprintf(expected_topic, sizeof(expected_topic), "%s/set/name", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
-        if (wifi_manager_set_hostname(payload) == ESP_OK) {
+        if (wifi_manager_set_display_name(payload) == ESP_OK) {
             ui_set_title_text(payload);
             ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/name", payload, true));
+            char hostname[33];
+            if (app_config_display_hostname(payload, hostname, sizeof(hostname)) == ESP_OK)
+                ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/hostname", hostname, true));
         } else {
-            ESP_LOGW(TAG, "Ignoring invalid panel hostname");
+            ESP_LOGW(TAG, "Ignoring invalid display name");
         }
         return;
     }
 
     snprintf(expected_topic, sizeof(expected_topic), "%s/state/name", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
-        if (wifi_manager_set_hostname(payload) == ESP_OK) {
+        if (wifi_manager_set_display_name(payload) == ESP_OK) {
             ui_set_title_text(payload);
         } else {
             ESP_LOGW(TAG, "Ignoring invalid retained panel hostname");
@@ -579,7 +648,19 @@ void app_main(void) {
         return;
     }
 
+    if (app_config_get()->display_name[0] != '\0') {
+        (void) wifi_manager_set_display_name(app_config_get()->display_name);
+        ui_set_title_text(app_config_get()->display_name);
+    }
+
     ui_set_wifi_state("WiFi ok");
+
+    if (!wifi_manager_station_ready()) {
+        ui_set_connection_status("Wi-Fi setup AP active");
+        ui_set_wifi_state("Setup AP");
+        (void)ui_show_page("about");
+        return;
+    }
 
     err = mqtt_app_start(on_mqtt_connected, on_mqtt_message, NULL);
     if (err != ESP_OK) {

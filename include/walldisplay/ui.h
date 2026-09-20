@@ -14,6 +14,7 @@ esp_err_t ui_set_connection_status(const char *status_text);
 esp_err_t ui_set_title_text(const char *title_text);
 esp_err_t ui_set_weather_text(const char *weather_text);
 esp_err_t ui_set_media_text(const char *media_text);
+esp_err_t ui_set_media_power(const char *power_text);
 esp_err_t ui_set_media_favorite_label(size_t index, const char *label_text);
 esp_err_t ui_set_media_favorite_icon(size_t index, const char *icon_name);
 esp_err_t ui_set_media_artwork(const uint16_t *pixels, size_t width, size_t height);

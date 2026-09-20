@@ -53,7 +53,9 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
           SERVER: ${{ env.PUBLIC_URL }}
           REPOSITORY: ${{ forgejo.repository }}
-        run: python tools/firmware_release.py package --version "$VERSION" --server "$SERVER" --repo "$REPOSITORY"
+        run: |
+          source "${IDF_PATH:?}/export.sh"
+          python tools/firmware_release.py package --version "$VERSION" --server "$SERVER" --repo "$REPOSITORY"
       - name: Upload build artifacts
         uses: https://data.forgejo.org/actions/upload-artifact@v3
         with:
@@ -111,7 +113,9 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
           SERVER: ${{ env.PUBLIC_URL }}
           REPOSITORY: ${{ forgejo.repository }}
-        run: python tools/firmware_release.py package --version "$VERSION" --server "$SERVER" --repo "$REPOSITORY"
+        run: |
+          source "${IDF_PATH:?}/export.sh"
+          python tools/firmware_release.py package --version "$VERSION" --server "$SERVER" --repo "$REPOSITORY"
       - name: Generate release notes
         env:
           VERSION: ${{ steps.release.outputs.version }}

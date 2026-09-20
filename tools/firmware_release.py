@@ -44,6 +44,19 @@ def package(version, server, repo, build=Path('build'), dist=Path('dist')):
     image = build / 'walldisplay.bin'
     name = f'walldisplay-{version}'
     shutil.copyfile(image, dist / f'{name}.bin')
+    factory = dist / f'{name}-factory.bin'
+    esptool = shutil.which('esptool')
+    if esptool is None:
+        raise RuntimeError('esptool executable is required to create the merged factory image')
+    subprocess.run([
+        esptool, '--chip', 'esp32s3', 'merge-bin',
+        '--output', str(factory), '--flash-mode', 'dio', '--flash-freq', '80m',
+        '--flash-size', 'keep',
+        '0x0', str(build / 'bootloader/bootloader.bin'),
+        '0x8000', str(build / 'partition_table/partition-table.bin'),
+        '0x14000', str(build / 'ota_data_initial.bin'),
+        '0x30000', str(image),
+    ], check=True)
     with tarfile.open(dist / f'{name}-factory.tar.gz', 'w:gz') as archive:
         for source, target in [(image, 'walldisplay.bin'),
                                (build / 'bootloader/bootloader.bin', 'bootloader.bin'),

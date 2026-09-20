@@ -137,7 +137,10 @@ lv_obj_t *create(lv_obj_t *parent) {
         lv_obj_remove_style_all(card);
         lv_obj_set_size(card, UI_WEATHER_CARD_WIDTH, 72);
         lv_obj_set_style_bg_color(card, lv_color_hex(UI_COLOR_CONTROL), 0);
-        lv_obj_set_style_bg_opa(card, LV_OPA_70, 0);
+        /* Opaque cards avoid an intermediate software-render layer on the
+         * RGB panel. Transparent rounded cards can keep LVGL's renderer busy
+         * for tens of seconds while it allocates and frees full-screen layers. */
+        lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(card, 10, 0);
         lv_obj_align(card, LV_ALIGN_BOTTOM_LEFT, (int) i * (UI_WEATHER_CARD_WIDTH + UI_WEATHER_CARD_GAP), 0);
 
