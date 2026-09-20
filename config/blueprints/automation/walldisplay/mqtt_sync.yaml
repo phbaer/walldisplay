@@ -1519,11 +1519,11 @@ actions:
         sequence:
           - action: media_player.media_next_track
             target: {entity_id: "{{ media_entity }}"}
-      - conditions: "{{ trigger.id == 'media_power_off' and media_power_switch | length > 0 and states(media_power_switch) not in ['unknown', 'unavailable'] }}"
+      - conditions: "{{ trigger.id == 'media_power_off' and media_power_switch | length > 0 }}"
         sequence:
           - action: switch.turn_off
             target: {entity_id: "{{ media_power_switch }}"}
-      - conditions: "{{ trigger.id == 'media_power_off' and not (media_power_switch | length > 0 and states(media_power_switch) not in ['unknown', 'unavailable']) }}"
+      - conditions: "{{ trigger.id == 'media_power_off' and media_power_switch | length == 0 }}"
         sequence:
           - action: media_player.turn_off
             target: {entity_id: "{{ media_entity }}"}

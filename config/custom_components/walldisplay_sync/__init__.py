@@ -328,13 +328,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await hass.services.async_call("media_player", "volume_set", {"entity_id": entity_id, "volume_level": volume_level}, blocking=False)
             return
         if command == "power_off":
-            power_switch_state = hass.states.get(power_switch) if power_switch else None
-            if power_switch_state is not None and power_switch_state.state not in {"unknown", "unavailable"}:
+            if power_switch:
                 _LOGGER.debug("Turning off configured media power switch %s", power_switch)
-                await hass.services.async_call("switch", "turn_off", target={"entity_id": power_switch}, blocking=False)
+                await hass.services.async_call("switch", "turn_off", target={"entity_id": power_switch}, blocking=True)
             else:
                 _LOGGER.debug("Turning off media player %s", entity_id)
-                await hass.services.async_call("media_player", "turn_off", target={"entity_id": entity_id}, blocking=False)
+                await hass.services.async_call("media_player", "turn_off", target={"entity_id": entity_id}, blocking=True)
             return
         service = {
             "previous": "media_previous_track",
