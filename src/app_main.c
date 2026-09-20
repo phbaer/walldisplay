@@ -71,6 +71,11 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
     snprintf(topic, sizeof(topic), "%s/state/media", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
+    snprintf(topic, sizeof(topic), "%s/set/media/power", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+    snprintf(topic, sizeof(topic), "%s/state/media/power", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
+
     for (int i = 1; i <= 5; ++i) {
         snprintf(topic, sizeof(topic), "%s/set/media/favorite%d/label", config->base_topic, i);
         esp_mqtt_client_subscribe(client, topic, 1);
@@ -401,6 +406,18 @@ static void on_mqtt_message(const char *topic, const char *payload, bool retaine
         cJSON *media = cJSON_Parse(payload); const cJSON *url = cJSON_IsObject(media) ? cJSON_GetObjectItemCaseSensitive(media, "artwork_url") : NULL;
         ESP_LOGI(TAG, "Media artwork URL: %s", cJSON_IsString(url) && url->valuestring[0] ? "provided" : "missing");
         if (cJSON_IsString(url)) media_artwork_request(url->valuestring); else media_artwork_request(""); cJSON_Delete(media);
+        return;
+    }
+
+    snprintf(expected_topic, sizeof(expected_topic), "%s/set/media/power", config->base_topic);
+    const bool set_media_power = strcmp(topic, expected_topic) == 0;
+    snprintf(expected_topic, sizeof(expected_topic), "%s/state/media/power", config->base_topic);
+    if (set_media_power || strcmp(topic, expected_topic) == 0) {
+        if (ui_set_media_power(payload) != ESP_OK) {
+            ESP_LOGW(TAG, "Ignoring invalid media power configuration");
+            return;
+        }
+        if (set_media_power) ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/media/power", payload, true));
         return;
     }
 

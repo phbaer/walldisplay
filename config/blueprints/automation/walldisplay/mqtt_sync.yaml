@@ -214,7 +214,7 @@ blueprint:
           domain: media_player
     media_power_switch:
       name: Media power switch (optional)
-      description: Turn this switch off from the panel power button. When unset, the media player is turned off instead.
+      description: Show a media power toggle for this switch. When unset, the media power button is hidden.
       default: ""
       selector:
         entity:
@@ -669,6 +669,12 @@ triggers:
     event_data:
       entity_id: !input media_entity
 
+  - id: media_power_state
+    trigger: event
+    event_type: state_changed
+    event_data:
+      entity_id: !input media_power_switch
+
   - id: chip1
     trigger: event
     event_type: state_changed
@@ -948,7 +954,7 @@ actions:
       - conditions: "{{ trigger.id == 'grid6_press' and 'buttons' in [page1, page2, page3, page4, page5] and grid6_label | length > 0 and grid6_state_entity | length == 0 }}"
         sequence: !input grid6_action
   - choose:
-      - conditions: "{{ trigger.id in ['startup', 'automation_reload', 'panel_online', 'panel_sync', 'panel_refresh'] }}"
+      - conditions: "{{ trigger.id in ['startup', 'automation_reload', 'panel_online', 'panel_sync', 'panel_refresh', 'media_power_state'] }}"
         sequence:
           - action: mqtt.publish
             data:
@@ -1000,6 +1006,12 @@ actions:
               qos: 1
               retain: true
               payload: "{{ {'dim_after': dim_after | int, 'off_after': screen_off_after | int, 'dim_percent': dim_brightness | int} | tojson }}"
+          - action: mqtt.publish
+            data:
+              topic: "{{ panel_topic }}/set/media/power"
+              qos: 1
+              retain: true
+              payload: "{{ {'configured': media_power_switch | length > 0, 'state': states(media_power_switch) if media_power_switch | length > 0 else 'off'} | tojson }}"
           - action: mqtt.publish
             data:
               topic: "{{ panel_topic }}/set/button1/label"
@@ -1521,12 +1533,8 @@ actions:
             target: {entity_id: "{{ media_entity }}"}
       - conditions: "{{ trigger.id == 'media_power_off' and media_power_switch | length > 0 }}"
         sequence:
-          - action: switch.turn_off
+          - action: homeassistant.toggle
             target: {entity_id: "{{ media_power_switch }}"}
-      - conditions: "{{ trigger.id == 'media_power_off' and media_power_switch | length == 0 }}"
-        sequence:
-          - action: media_player.turn_off
-            target: {entity_id: "{{ media_entity }}"}
       - conditions: "{{ trigger.id == 'media_volume_down' }}"
         sequence:
           - action: media_player.volume_down

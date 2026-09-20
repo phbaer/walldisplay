@@ -55,6 +55,7 @@ static lv_obj_t *s_weather_page;
 static weather_widget_t *s_weather_widget;
 static buttons_widget_t *s_buttons_widget;
 static lv_obj_t *s_media_page;
+static lv_obj_t *s_media_power_button;
 static lv_obj_t *s_about_page;
 static lv_obj_t *s_pages[PANEL_PAGE_COUNT];
 static lv_obj_t *s_page_nav;
@@ -795,8 +796,9 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_align(volume_up_button, LV_ALIGN_RIGHT_MID, -4, 0);
     lv_obj_add_event_cb(volume_up_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_up");
 
-    lv_obj_t *power_button = create_media_button(s_media_page, LV_SYMBOL_POWER, 38, 34, "power_off", media_control_event_cb, true);
-    lv_obj_align(power_button, LV_ALIGN_TOP_RIGHT, -8, 8);
+    s_media_power_button = create_media_button(s_media_page, LV_SYMBOL_POWER, 38, 34, "power_off", media_control_event_cb, true);
+    lv_obj_align(s_media_power_button, LV_ALIGN_TOP_RIGHT, -8, 8);
+    lv_obj_add_flag(s_media_power_button, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *media_favorites = lv_obj_create(s_media_page);
     lv_obj_remove_style_all(media_favorites);
@@ -977,6 +979,27 @@ esp_err_t ui_set_media_text(const char *media_text) {
     }
     cJSON_Delete(root);
     return media_widget_update(s_media_widget, media_text);
+}
+
+esp_err_t ui_set_media_power(const char *power_text) {
+    if (power_text == NULL || s_media_power_button == NULL) return ESP_ERR_INVALID_ARG;
+    cJSON *root = cJSON_Parse(power_text);
+    const cJSON *configured = cJSON_IsObject(root) ? cJSON_GetObjectItemCaseSensitive(root, "configured") : NULL;
+    const cJSON *state = cJSON_IsObject(root) ? cJSON_GetObjectItemCaseSensitive(root, "state") : NULL;
+    if (!cJSON_IsBool(configured) || !cJSON_IsString(state)) {
+        cJSON_Delete(root);
+        return ESP_ERR_INVALID_ARG;
+    }
+    const bool visible = cJSON_IsTrue(configured);
+    const bool active = visible && (strcmp(state->valuestring, "on") == 0 || strcmp(state->valuestring, "true") == 0);
+    if (!lvgl_port_lock(0)) { cJSON_Delete(root); return ESP_ERR_TIMEOUT; }
+    if (visible) lv_obj_clear_flag(s_media_power_button, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(s_media_power_button, LV_OBJ_FLAG_HIDDEN);
+    if (active) lv_obj_add_state(s_media_power_button, LV_STATE_CHECKED);
+    else lv_obj_clear_state(s_media_power_button, LV_STATE_CHECKED);
+    lvgl_port_unlock();
+    cJSON_Delete(root);
+    return ESP_OK;
 }
 
 esp_err_t ui_set_media_favorite_label(size_t index, const char *label_text) {
