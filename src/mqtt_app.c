@@ -73,7 +73,8 @@ esp_err_t mqtt_app_start(mqtt_connected_cb_t on_connected, mqtt_message_cb_t on_
     const app_config_t *config = app_config_get();
     const bool tls = strncmp(config->mqtt_uri, "mqtts://", 8) == 0;
     ESP_RETURN_ON_FALSE(tls || (!config->mqtt_require_tls && strncmp(config->mqtt_uri, "mqtt://", 7) == 0),
-                        ESP_ERR_INVALID_ARG, TAG, "MQTT requires mqtts:// unless require_tls is explicitly disabled");
+                        ESP_ERR_INVALID_ARG, TAG,
+                        "MQTT URI/security mismatch: use mqtts:// or disable TLS for mqtt://");
     snprintf(s_availability_topic, sizeof(s_availability_topic), "%s/status", config->base_topic);
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = config->mqtt_uri,

@@ -25,6 +25,7 @@
 
 #define SCREENSHOT_MOUNT_PATH "/spiffs"
 #define SCREENSHOT_URI "/screenshot.bmp"
+#define SCREENSHOT_HTTP_PORT 8080
 #define SCREENSHOT_DEFAULT_NAME "screenshot"
 #define SCREENSHOT_NAME_MAX 32
 #define SCREENSHOT_BYTES_PER_PIXEL 2U
@@ -86,7 +87,7 @@ static void publish_status(const char *state, size_t bytes, const char *name) {
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     esp_netif_ip_info_t ip_info;
     if (netif != NULL && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
-        snprintf(url, sizeof(url), "http://" IPSTR SCREENSHOT_URI "?name=%s", IP2STR(&ip_info.ip), name);
+        snprintf(url, sizeof(url), "http://" IPSTR ":%u" SCREENSHOT_URI "?name=%s", IP2STR(&ip_info.ip), SCREENSHOT_HTTP_PORT, name);
     }
 
     char payload[180];
@@ -313,6 +314,8 @@ esp_err_t screenshot_init(const display_board_handle_t *board, screenshot_status
     ESP_RETURN_ON_FALSE(s_capture_queue != NULL, ESP_ERR_NO_MEM, TAG, "Screenshot queue allocation failed");
 
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
+    /* Port 80 is reserved for the Wi-Fi setup portal. */
+    server_config.server_port = SCREENSHOT_HTTP_PORT;
     server_config.max_uri_handlers = 1;
     server_config.stack_size = 4096;
     ESP_RETURN_ON_ERROR(httpd_start(&s_http_server, &server_config), TAG, "HTTP server start failed");

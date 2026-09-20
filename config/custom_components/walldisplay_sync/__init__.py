@@ -20,6 +20,7 @@ from .const import (
     CONF_MEDIA_ENTITY,
     CONF_MEDIA_POWER_SWITCH,
     CONF_PANEL_NAME,
+    CONF_PANEL_HOSTNAME,
     CONF_PANEL_TOPIC,
     CONF_WEATHER_ENTITY,
     CONF_TEMPERATURE_ENTITY,
@@ -51,7 +52,7 @@ from .artwork import ArtworkCache, async_register_cache, async_unregister_cache
 from .updates import async_latest_release, is_newer
 
 _LOGGER = logging.getLogger(__name__)
-_PLATFORMS = [Platform.BUTTON, Platform.EVENT]
+_PLATFORMS = [Platform.BUTTON, Platform.EVENT, Platform.SENSOR]
 _UPDATE_ISSUE_PREFIX = "firmware_update_"
 _UPDATE_CHECK_INTERVAL = timedelta(hours=6)
 _UPDATE_RETRY_INTERVAL = timedelta(minutes=5)
@@ -81,6 +82,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     config = migrate_configuration({**entry.data, **entry.options})
     topic = config[CONF_PANEL_TOPIC].rstrip("/")
     panel_name = config.get(CONF_PANEL_NAME, "") or entry.title
+    panel_hostname = config.get(CONF_PANEL_HOSTNAME, "")
     entity_id = config.get(CONF_MEDIA_ENTITY, "")
     power_switch = config.get(CONF_MEDIA_POWER_SWITCH, "")
     weather_entity = config.get(CONF_WEATHER_ENTITY, "")
@@ -205,7 +207,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await mqtt.async_publish(hass, f"{topic}/set/screenshots_enabled", "ON" if config["screenshots_enabled"] else "OFF", 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/pages", json.dumps(layout_payload(config), ensure_ascii=False), 1, True)
         # Keep the compatibility payload aligned with the generated manifest.
-        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "1.0.0", "contract": "9"}), 1, True)
+        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "1.1.0", "contract": "10"}), 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/name", panel_name, 1, True)
         await mqtt.async_publish(
             hass,

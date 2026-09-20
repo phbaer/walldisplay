@@ -11,6 +11,10 @@ static size_t test_strlcpy(char *dest, const char *source, size_t size) {
     return length;
 }
 #define strlcpy test_strlcpy
+#include "nvs.h"
+esp_err_t nvs_set_u8(nvs_handle_t h, const char *key, uint8_t value);
+esp_err_t nvs_erase_all(nvs_handle_t h);
+esp_err_t nvs_erase_key(nvs_handle_t h, const char *key);
 #include "../src/app_config.c"
 static char saved[PANEL_LAYOUT_JSON_SIZE], pending[PANEL_LAYOUT_JSON_SIZE];
 static int writes;
@@ -27,6 +31,9 @@ esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *value) { (void)h;
 esp_err_t nvs_set_str(nvs_handle_t h, const char *key, const char *value) {
     (void)h; assert(!strcmp(key,"pages")); strcpy(pending,value); ++writes; return ESP_OK;
 }
+esp_err_t nvs_set_u8(nvs_handle_t h, const char *key, uint8_t value) { (void)h; (void)key; (void)value; return ESP_OK; }
+esp_err_t nvs_erase_all(nvs_handle_t h) { (void)h; pending[0] = 0; return ESP_OK; }
+esp_err_t nvs_erase_key(nvs_handle_t h, const char *key) { (void)h; (void)key; return ESP_OK; }
 esp_err_t nvs_commit(nvs_handle_t h) { (void)h; if (fail_commit) return ESP_FAIL; strcpy(saved,pending); return ESP_OK; }
 void nvs_close(nvs_handle_t h) { (void)h; pending[0]=0; }
 int main(void) {

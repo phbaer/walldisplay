@@ -1,6 +1,6 @@
 blueprint:
   # Generated from pyproject.toml by tools/sync_project_version.py.
-  name: WallDisplay MQTT Sync v1.0.0 (Contract 9)
+  name: WallDisplay MQTT Sync v1.1.0 (Contract 10)
   description: >-
     Publish the panel hostname, clock, weather, rich media controls and favourites, configurable weather/media/buttons/About pages, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
@@ -15,9 +15,9 @@ blueprint:
       selector:
         text:
     panel_name:
-      name: Panel hostname
-      description: Hostname and header title. Use 1-32 lowercase ASCII letters, numbers, or hyphens; do not start or end with a hyphen.
-      default: walldisplay-living-room
+      name: Panel display name
+      description: Human-readable label shown in the panel header. Spaces and capitalization are preserved; the firmware derives a lowercase hostname.
+      default: WallDisplay Living Room
       selector:
         text:
     page1:
@@ -560,8 +560,8 @@ variables:
   grid5_state_entity: !input grid5_state_entity
   grid6_label: !input grid6_label
   grid6_state_entity: !input grid6_state_entity
-  blueprint_version: "1.0.0"
-  panel_contract_version: "9"
+  blueprint_version: "1.1.0"
+  panel_contract_version: "10"
   panel_topic: !input panel_topic
   panel_name: !input panel_name
   time_format: !input time_format

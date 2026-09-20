@@ -5,6 +5,7 @@
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
 #include "lvgl.h"
+#include "src/libs/qrcode/lv_qrcode.h"
 #include "cJSON.h"
 #include "walldisplay/ui_actions.h"
 #include "walldisplay/ui_theme.h"
@@ -22,6 +23,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "walldisplay/wifi_manager.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -67,6 +69,8 @@ static lv_obj_t *s_dynamic_row;
 static lv_obj_t *s_clock_label;
 static lv_obj_t *s_date_label;
 static lv_obj_t *s_about_value_label;
+static lv_obj_t *s_about_qr;
+static bool s_about_qr_ap_active;
 static lv_timer_t *s_about_refresh_timer;
 static lv_obj_t *s_update_screen;
 static lv_obj_t *s_update_detail_label;
@@ -391,6 +395,13 @@ static void format_ipv6_address(const esp_ip6_addr_t *address, char *output, siz
     snprintf(output, output_size, IPV6STR, IPV62STR(*address));
 }
 
+static const char *configuration_state(const char *value, const char *placeholder) {
+    return value != NULL && value[0] != '\0' &&
+                   (placeholder == NULL || strcmp(value, placeholder) != 0)
+               ? "configured"
+               : "not configured";
+}
+
 static void refresh_about_page(void) {
     if (s_about_value_label == NULL) return;
 
@@ -405,7 +416,27 @@ static void refresh_about_page(void) {
     char ipv6_global_text[40] = "unavailable";
     char ipv6_linklocal_text[40] = "unavailable";
     char wifi_text[64] = "unavailable";
+    char ap_text[256] = "";
     char hostname_text[64] = "unavailable";
+    const app_config_t *config = app_config_get();
+    const bool ap_active = wifi_manager_ap_active();
+    if (ap_active) {
+        char ap_ssid[33], ap_password[65];
+        if (wifi_manager_get_ap_credentials(ap_ssid, sizeof(ap_ssid), ap_password, sizeof(ap_password)) == ESP_OK) {
+            snprintf(ap_text, sizeof(ap_text), "SETUP AP\nSSID: %s\nPassword: %s\nPortal: 192.168.4.1", ap_ssid, ap_password);
+            if (s_about_qr != NULL && !s_about_qr_ap_active) {
+                char qr_data[140];
+                snprintf(qr_data, sizeof(qr_data), "WIFI:T:WPA;S:%s;P:%s;;", ap_ssid, ap_password);
+                lv_qrcode_update(s_about_qr, qr_data, strlen(qr_data));
+                lv_obj_clear_flag(s_about_qr, LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    } else if (s_about_qr != NULL && s_about_qr_ap_active) {
+        lv_obj_add_flag(s_about_qr, LV_OBJ_FLAG_HIDDEN);
+    }
+    s_about_qr_ap_active = ap_active;
+    const char *wifi_credentials = configuration_state(config->wifi_ssid, "YOUR_WIFI_SSID");
+    const char *mqtt_credentials = configuration_state(config->mqtt_uri, "mqtts://YOUR_MQTT_BROKER");
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (netif != NULL) {
         esp_netif_ip_info_t ip_info = {0};
@@ -440,13 +471,12 @@ static void refresh_about_page(void) {
     const unsigned seconds = (unsigned) (uptime_s % 60U);
     char about_text[768];
     snprintf(about_text, sizeof(about_text),
-             "Firmware: %s\nMQTT contract: %s\nModel: %s\n"
-             "Hostname: %s\nIPv4: %s\nIPv6: %s\nIPv6 LL: %s\n"
-             "MAC: %s\nWi-Fi: %s\nUptime: %ud %02u:%02u:%02u\nReset: %s",
+             "SYSTEM\nFirmware: %s\nMQTT contract: %s\nModel: %s\nUptime: %ud %02u:%02u:%02u\nReset: %s\n\nNETWORK\nHostname: %s\nIPv4: %s\nIPv6: %s\nIPv6 LL: %s\n"
+             "MAC: %s\nWi-Fi: %s\nWi-Fi credentials: %s\nMQTT: %s%s%s",
              APP_FW_VERSION, APP_CONTRACT_VERSION, APP_DEVICE_MODEL,
-             hostname_text, ipv4_text, ipv6_global_text, ipv6_linklocal_text,
-             mac_text, wifi_text, days, hours, minutes, seconds,
-             reset_reason_name(esp_reset_reason()));
+             days, hours, minutes, seconds,
+             reset_reason_name(esp_reset_reason()), hostname_text, ipv4_text, ipv6_global_text, ipv6_linklocal_text,
+             mac_text, wifi_text, wifi_credentials, mqtt_credentials, ap_text[0] ? "\n\n" : "", ap_text);
     lv_label_set_text(s_about_value_label, about_text);
 }
 
@@ -540,7 +570,7 @@ static void page_nav_event_cb(lv_event_t *event) {
 esp_err_t ui_show_page(const char *page_name) {
     panel_page_id_t id;
     if (!panel_page_parse(page_name, &id)) return ESP_ERR_INVALID_ARG;
-    if (!lvgl_port_lock(0)) return ESP_ERR_TIMEOUT;
+    if (!lvgl_port_lock(pdMS_TO_TICKS(1000))) return ESP_ERR_TIMEOUT;
     if (!panel_layout_contains(&s_layout, id)) { lvgl_port_unlock(); return ESP_ERR_INVALID_ARG; }
     show_page_locked(id);
     lvgl_port_unlock();
@@ -549,6 +579,10 @@ esp_err_t ui_show_page(const char *page_name) {
 
 static void apply_layout_locked(void) {
     s_layout = app_config_get()->layout;
+    /* Keep the About page available for setup diagnostics even when a custom
+     * layout omits it. It is appended after all user-selected pages. */
+    if (!panel_layout_contains(&s_layout, PANEL_PAGE_ABOUT) && s_layout.count < PANEL_MAX_PAGES)
+        s_layout.order[s_layout.count++] = PANEL_PAGE_ABOUT;
     if (s_page_nav != NULL) {
         if (s_layout.count <= 1) lv_obj_add_flag(s_page_nav, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_clear_flag(s_page_nav, LV_OBJ_FLAG_HIDDEN);
@@ -672,7 +706,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_set_style_border_width(status_control, 1, 0);
     lv_obj_set_style_border_color(status_control, lv_color_hex(0x2A3038), 0);
     lv_obj_set_style_radius(status_control, 12, 0);
-    lv_obj_set_style_clip_corner(status_control, true, 0);
+    lv_obj_set_style_clip_corner(status_control, false, 0);
     lv_obj_align(status_control, LV_ALIGN_RIGHT_MID, 0, 0);
 
     lv_obj_t *measurement_chip_row = lv_obj_create(chip_row);
@@ -734,7 +768,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     style_panel(volume_rocker, 0x112536, 14);
     lv_obj_set_size(volume_rocker, 172, 52);
     lv_obj_set_style_pad_all(volume_rocker, 4, 0);
-    lv_obj_set_style_clip_corner(volume_rocker, true, 0);
+    lv_obj_set_style_clip_corner(volume_rocker, false, 0);
     lv_obj_t *volume_down_button = create_media_button(volume_rocker, LV_SYMBOL_MINUS, 40, 44, "volume_down", media_control_event_cb, true);
     style_volume_rocker_button(volume_down_button);
     lv_obj_align(volume_down_button, LV_ALIGN_LEFT_MID, 4, 0);
@@ -797,6 +831,12 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_set_width(s_about_value_label, UI_MAIN_CONTENT_WIDTH - 24);
     lv_obj_set_style_text_font(s_about_value_label, font_ui_14(), 0);
     lv_obj_align(s_about_value_label, LV_ALIGN_TOP_LEFT, 0, 10);
+    s_about_qr = lv_qrcode_create(s_about_page);
+    if (s_about_qr != NULL) {
+        lv_qrcode_set_size(s_about_qr, 128);
+        lv_obj_align(s_about_qr, LV_ALIGN_TOP_RIGHT, -8, 8);
+        lv_obj_add_flag(s_about_qr, LV_OBJ_FLAG_HIDDEN);
+    }
     refresh_about_page();
     s_about_refresh_timer = lv_timer_create(about_refresh_timer_cb, 5000, NULL);
     if (s_about_refresh_timer == NULL) { lvgl_port_unlock(); return ESP_ERR_NO_MEM; }

@@ -1,6 +1,7 @@
 DOMAIN = "walldisplay_sync"
 CONF_PANEL_TOPIC = "panel_topic"
 CONF_PANEL_NAME = "panel_name"
+CONF_PANEL_HOSTNAME = "panel_hostname"
 CONF_TIME_FORMAT = "time_format"
 CONF_MEDIA_ENTITY = "media_entity"
 CONF_MEDIA_POWER_SWITCH = "media_power_switch"

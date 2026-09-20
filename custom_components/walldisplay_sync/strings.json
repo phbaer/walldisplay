@@ -27,7 +27,7 @@
         "title": "Panel and media player",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel hostname",
+          "panel_name": "Panel display name",
           "media_entity": "Media player",
           "media_power_switch": "Media power switch (optional)"
         }
@@ -128,7 +128,7 @@
         "title": "WallDisplay Sync",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel hostname",
+          "panel_name": "Panel display name",
           "media_entity": "Media player"
         }
       },
@@ -177,6 +177,7 @@
     "error": {
       "invalid_pages": "Select unique pages and an enabled startup page; titles allow 48 UTF-8 bytes.",
       "invalid_panel_hostname": "Use 1-32 lowercase ASCII letters, numbers, or hyphens; do not start or end with a hyphen.",
+      "invalid_display_name": "Use 1-64 printable UTF-8 bytes and include at least one letter or number.",
       "invalid_update_api_url": "Enter an HTTPS URL no longer than 512 characters, or leave it empty to disable update checks.",
       "invalid_config": "Check configuration keys, entity IDs, page order, startup page, label lengths, and panel topic. Existing entries must keep their topic."
     }
@@ -202,7 +203,7 @@
         "title": "Panel and media player",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel hostname",
+          "panel_name": "Panel display name",
           "media_entity": "Media player",
           "media_power_switch": "Media power switch (optional)"
         }
@@ -303,7 +304,7 @@
         "title": "Panel and media player",
         "data": {
           "panel_topic": "Panel MQTT topic",
-          "panel_name": "Panel hostname",
+          "panel_name": "Panel display name",
           "media_entity": "Media player",
           "media_power_switch": "Media power switch (optional)"
         }

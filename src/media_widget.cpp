@@ -63,7 +63,7 @@ public:
         lv_obj_remove_style_all(placeholder_);
         lv_obj_set_size(placeholder_, 136, 136);
         lv_obj_set_style_bg_color(placeholder_, lv_color_hex(kControlColor), 0);
-        lv_obj_set_style_bg_opa(placeholder_, LV_OPA_90, 0);
+        lv_obj_set_style_bg_opa(placeholder_, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(placeholder_, 1, 0);
         lv_obj_set_style_border_color(placeholder_, lv_color_hex(kBorderColor), 0);
         lv_obj_set_style_radius(placeholder_, 10, 0);

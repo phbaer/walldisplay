@@ -204,6 +204,7 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
                                       NULL,
                                       "state/media"));
     DISCOVERY_CHECK(publish_discovery(client, "text", "name", "Panel Name", "set/name", "state/name"));
+    DISCOVERY_CHECK(publish_discovery(client, "sensor", "hostname", "Panel Hostname", NULL, "state/hostname"));
     DISCOVERY_CHECK(publish_discovery(client, "sensor", "clock", "Panel Time", NULL, "state/clock"));
     DISCOVERY_CHECK(publish_discovery(client, "sensor", "date", "Panel Date", NULL, "state/date"));
     for (int i = 1; i <= 4; ++i) {
@@ -221,7 +222,10 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
     }
     DISCOVERY_CHECK(publish_discovery(client, "button", "sync", "Sync Panel", "cmd/sync", NULL));
     DISCOVERY_CHECK(publish_discovery(client, "button", "wake", "Wake Panel", "cmd/wake", NULL));
+    DISCOVERY_CHECK(publish_discovery(client, "switch", "ap", "Setup Access Point", "cmd/config/ap", "state/config/ap"));
     DISCOVERY_CHECK(publish_discovery(client, "button", "screenshot", "Capture Screenshot", "cmd/screenshot", NULL));
+    DISCOVERY_CHECK(publish_discovery(client, "button", "factory_reset", "Factory Reset and Reboot", "cmd/config/factory_reset", NULL));
+    DISCOVERY_CHECK(publish_discovery(client, "button", "reboot", "Reboot Panel", "cmd/config/reboot", NULL));
     DISCOVERY_CHECK(publish_discovery(client, "text", "base_topic", "Panel MQTT Topic", "cmd/config/base_topic", "state/config/base_topic"));
     DISCOVERY_CHECK(ha_discovery_publish_page_options(client));
     DISCOVERY_CHECK(publish_discovery(client, "text", "update_manifest", "Panel Update Manifest URL", "cmd/update", NULL));

@@ -46,7 +46,7 @@ from .configuration import (
     _basic_schema, _display_schema, _favorites_schema, _count_schema, _chip_schema,
     _footer_schema, _configured_count, _clear_unselected, _pages_schema, _grid_schema,
     _updates_form_schema, _update_api_url, _complete_config, _merge_form, migrate_configuration,
-    _panel_hostname,
+    _panel_hostname, _hostname_from_display_name,
 )
 
 class WallDisplayFlowSteps:
@@ -97,7 +97,7 @@ class WallDisplayFlowSteps:
             try:
                 raw_configuration = user_input["configuration"]
                 if isinstance(raw_configuration, dict) and CONF_PANEL_NAME in raw_configuration:
-                    _panel_hostname(raw_configuration[CONF_PANEL_NAME])
+                    _hostname_from_display_name(raw_configuration[CONF_PANEL_NAME])
                 data = migrate_configuration(raw_configuration)
                 if isinstance(self, config_entries.OptionsFlow) and data[CONF_PANEL_TOPIC] != self.config_entry.data[CONF_PANEL_TOPIC].rstrip("/"):
                     raise ValueError("Changing panel identity requires a new entry")
@@ -123,9 +123,10 @@ class WallDisplayFlowSteps:
         errors = {}
         if user_input is not None:
             try:
-                user_input[CONF_PANEL_NAME] = _panel_hostname(user_input.get(CONF_PANEL_NAME, ""))
+                user_input[CONF_PANEL_NAME] = str(user_input.get(CONF_PANEL_NAME, "")).strip()
+                _hostname_from_display_name(user_input[CONF_PANEL_NAME])
             except vol.Invalid:
-                errors[CONF_PANEL_NAME] = "invalid_panel_hostname"
+                errors[CONF_PANEL_NAME] = "invalid_display_name"
             else:
                 _merge_form(self._data, user_input, _basic_schema(self._data))
                 return await self.async_step_configure()
