@@ -4,7 +4,7 @@ from __future__ import annotations
 from homeassistant.components.event import EventEntity
 from homeassistant.helpers.entity import DeviceInfo
 
-from .const import DOMAIN, FOOTER_BUTTON_COUNT
+from .const import FOOTER_BUTTON_COUNT
 from .pages import GRID_COUNT
 
 
@@ -28,7 +28,7 @@ class WallDisplayFooterButtonEvent(EventEntity):
         kind = "grid_button" if grid else "footer_button"
         self._attr_unique_id = f"{runtime.identifier}_{kind}_{number}"
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, runtime.identifier)},
+            identifiers=runtime.device_identifiers,
             name=runtime.name,
             manufacturer="Guition",
             model="ESP32-4848S040",

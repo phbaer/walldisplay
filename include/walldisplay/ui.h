@@ -21,6 +21,7 @@ esp_err_t ui_set_media_artwork(const uint16_t *pixels, size_t width, size_t heig
 esp_err_t ui_apply_page_layout(void);
 esp_err_t ui_set_grid_button(size_t index, const char *json);
 esp_err_t ui_show_page(const char *page_name);
+const char *ui_current_page_name(void);
 esp_err_t ui_set_clock_text(const char *clock_text);
 esp_err_t ui_set_date_text(const char *date_text);
 esp_err_t ui_set_wifi_state(const char *state_text);

@@ -4,6 +4,8 @@ blueprint:
   description: >-
     Publish the panel hostname, clock, weather, rich media controls and favourites, configurable weather/media/buttons/About pages, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
+    Firmware discovery exposes all canonical MQTT controls and diagnostic payloads on the panel device;
+    this automation restores its configured inputs on synchronization after manual device edits.
   homeassistant:
     min_version: 2024.10.0
   domain: automation

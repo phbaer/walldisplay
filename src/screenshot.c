@@ -384,3 +384,7 @@ esp_err_t screenshot_set_enabled(bool enabled) {
     atomic_store(&s_enabled, enabled);
     return ESP_OK;
 }
+
+bool screenshot_is_enabled(void) {
+    return atomic_load(&s_enabled);
+}

@@ -15,3 +15,4 @@ esp_err_t screenshot_request(void);
 esp_err_t screenshot_request_named(const char *name);
 
 esp_err_t screenshot_set_enabled(bool enabled);
+bool screenshot_is_enabled(void);

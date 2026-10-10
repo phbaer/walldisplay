@@ -96,6 +96,15 @@ esp_err_t device_info_publish(void) {
             cJSON_AddStringToObject(root, keys[i], ipv6_text);
         } else cJSON_AddStringToObject(root, keys[i], "unavailable");
     }
+    const app_config_t *config = app_config_get();
+    cJSON_AddStringToObject(root, "panel_name", config->display_name);
+    cJSON_AddStringToObject(root, "base_topic", config->base_topic);
+    cJSON_AddStringToObject(root, "discovery_prefix", config->discovery_prefix);
+    cJSON_AddStringToObject(root, "hardware_model", APP_DEVICE_MODEL);
+    cJSON_AddBoolToObject(root, "wifi_configured", config->wifi_ssid[0] && strcmp(config->wifi_ssid, "YOUR_WIFI_SSID") != 0);
+    cJSON_AddBoolToObject(root, "mqtt_configured", config->mqtt_uri[0] && strstr(config->mqtt_uri, "YOUR_MQTT_BROKER") == NULL);
+    cJSON_AddBoolToObject(root, "mqtt_tls_required", config->mqtt_require_tls);
+    cJSON_AddBoolToObject(root, "screenshot_token_configured", config->screenshot_token[0] != '\0');
     cJSON_AddStringToObject(root, "ip", ip_text);
     cJSON_AddStringToObject(root, "mac", mac_text);
     cJSON_AddStringToObject(root, "firmware_version", APP_FW_VERSION);

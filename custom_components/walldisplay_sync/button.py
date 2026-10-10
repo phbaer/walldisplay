@@ -5,7 +5,6 @@ from homeassistant.components import mqtt
 from homeassistant.components.button import ButtonEntity
 from homeassistant.helpers.entity import DeviceInfo
 
-from .const import DOMAIN
 
 
 async def async_setup_entry(hass, entry, async_add_entities) -> None:
@@ -24,7 +23,7 @@ class WallDisplayCommandButton(ButtonEntity):
         self._attr_name = name
         self._attr_unique_id = f"{runtime.identifier}_{command}"
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, runtime.identifier)},
+            identifiers=runtime.device_identifiers,
             name=runtime.name,
             manufacturer="Guition",
             model="ESP32-4848S040",
