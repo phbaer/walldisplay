@@ -78,6 +78,19 @@ static esp_err_t publish_discovery(esp_mqtt_client_handle_t client,
         cJSON_AddStringToObject(root, "stat_t", state_topic);
     }
     cJSON_AddStringToObject(root, "avty_t", availability_topic);
+    if (strcmp(object_suffix, "screenshot_token") == 0) {
+        cJSON_AddStringToObject(root, "mode", "password");
+        cJSON_AddStringToObject(root, "ent_cat", "config");
+        cJSON_AddNumberToObject(root, "min", 32);
+        cJSON_AddNumberToObject(root, "max", 64);
+        cJSON_AddStringToObject(root, "ptrn", "[A-Za-z0-9]{32,64}");
+        cJSON_AddBoolToObject(root, "ret", false);
+    }
+    if (strcmp(object_suffix, "screenshot_status") == 0) {
+        cJSON_AddStringToObject(root, "val_tpl", "{{ value_json.state }}");
+        cJSON_AddStringToObject(root, "json_attr_t", state_topic);
+        cJSON_AddStringToObject(root, "ent_cat", "diagnostic");
+    }
     cJSON_AddItemToObject(root, "dev", device);
     cJSON_AddStringToObject(device, "name", device_name);
     cJSON_AddStringToObject(device, "mdl", APP_DEVICE_MODEL);
@@ -237,6 +250,8 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
     DISCOVERY_CHECK(publish_discovery(client, "button", "sync", "Sync Panel", "cmd/sync", NULL));
     DISCOVERY_CHECK(publish_discovery(client, "button", "wake", "Wake Panel", "cmd/wake", NULL));
     DISCOVERY_CHECK(publish_discovery(client, "switch", "ap", "Setup Access Point", "cmd/config/ap", "state/config/ap"));
+    DISCOVERY_CHECK(publish_discovery(client, "text", "screenshot_token", "Screenshot Token", "cmd/config/screenshot_token", NULL));
+    DISCOVERY_CHECK(publish_discovery(client, "sensor", "screenshot_status", "Screenshot Status", NULL, "state/screenshot"));
     DISCOVERY_CHECK(publish_discovery(client, "button", "screenshot", "Capture Screenshot", "cmd/screenshot", NULL));
     DISCOVERY_CHECK(publish_discovery(client, "button", "factory_reset", "Factory Reset and Reboot", "cmd/config/factory_reset", NULL));
     DISCOVERY_CHECK(publish_discovery(client, "button", "reboot", "Reboot Panel", "cmd/config/reboot", NULL));
@@ -261,6 +276,8 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
     }
 
     DISCOVERY_CHECK(publish_device_diagnostic(client, "ip", "IP Address", "ip", NULL, NULL, "mdi:ip-network"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "ipv6_global", "IPv6 Address", "ipv6_global", NULL, NULL, "mdi:ip-network"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "ipv6_linklocal", "IPv6 Link-local Address", "ipv6_linklocal", NULL, NULL, "mdi:ip-network"));
     DISCOVERY_CHECK(publish_device_diagnostic(client, "mac", "Wi-Fi MAC", "mac", NULL, NULL, "mdi:network-outline"));
     DISCOVERY_CHECK(publish_device_diagnostic(client, "firmware", "Firmware Version", "firmware_version", NULL, NULL, "mdi:chip"));
     DISCOVERY_CHECK(publish_device_diagnostic(client, "blueprint", "Blueprint Version", "blueprint_version", NULL, NULL, "mdi:script-text"));

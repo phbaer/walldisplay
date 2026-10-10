@@ -55,6 +55,10 @@ topic write homeassistant/sensor/panel_living_room_firmware/config
 topic write homeassistant/sensor/panel_living_room_firmware_contract/config
 topic write homeassistant/sensor/panel_living_room_heap/config
 topic write homeassistant/sensor/panel_living_room_ip/config
+topic write homeassistant/sensor/panel_living_room_ipv6_global/config
+topic write homeassistant/sensor/panel_living_room_ipv6_linklocal/config
+topic write homeassistant/sensor/panel_living_room_screenshot_status/config
+topic write homeassistant/text/panel_living_room_screenshot_token/config
 topic write homeassistant/sensor/panel_living_room_mac/config
 topic write homeassistant/sensor/panel_living_room_media/config
 topic write homeassistant/sensor/panel_living_room_min_heap/config

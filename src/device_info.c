@@ -85,6 +85,17 @@ esp_err_t device_info_publish(void) {
         cJSON_AddStringToObject(root, "wifi_bssid", bssid_text);
     }
 
+    esp_ip6_addr_t ipv6 = {0};
+    char ipv6_text[40];
+    const char *keys[] = {"ipv6_global", "ipv6_linklocal"};
+    for (int i = 0; i < 2; ++i) {
+        esp_err_t err = netif == NULL ? ESP_ERR_INVALID_STATE :
+            (i == 0 ? esp_netif_get_ip6_global(netif, &ipv6) : esp_netif_get_ip6_linklocal(netif, &ipv6));
+        if (err == ESP_OK) {
+            snprintf(ipv6_text, sizeof(ipv6_text), IPV6STR, IPV62STR(ipv6));
+            cJSON_AddStringToObject(root, keys[i], ipv6_text);
+        } else cJSON_AddStringToObject(root, keys[i], "unavailable");
+    }
     cJSON_AddStringToObject(root, "ip", ip_text);
     cJSON_AddStringToObject(root, "mac", mac_text);
     cJSON_AddStringToObject(root, "firmware_version", APP_FW_VERSION);

@@ -16,6 +16,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <errno.h>
 #include <stdatomic.h>
 #include "freertos/semphr.h"
 
@@ -40,6 +41,7 @@ static QueueHandle_t s_capture_queue;
 static httpd_handle_t s_http_server;
 static SemaphoreHandle_t s_storage_lock;
 static atomic_bool s_enabled;
+static bool s_ready;
 static char s_saved_names[4][SCREENSHOT_NAME_MAX];
 static size_t s_next_saved;
 
@@ -78,7 +80,7 @@ static void put_u32_le(uint8_t *dest, uint32_t value) {
     dest[3] = (uint8_t)(value >> 24);
 }
 
-static void publish_status(const char *state, size_t bytes, const char *name) {
+static void publish_status(const char *state, size_t bytes, const char *name, esp_err_t error, const char *stage) {
     if (s_status_callback == NULL) {
         return;
     }
@@ -86,21 +88,24 @@ static void publish_status(const char *state, size_t bytes, const char *name) {
     char url[80] = "";
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     esp_netif_ip_info_t ip_info;
-    if (netif != NULL && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+    if (name != NULL && netif != NULL && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
         snprintf(url, sizeof(url), "http://" IPSTR ":%u" SCREENSHOT_URI "?name=%s", IP2STR(&ip_info.ip), SCREENSHOT_HTTP_PORT, name);
     }
 
-    char payload[180];
+    char payload[320];
     if (url[0] != '\0' && strcmp(state, "ready") == 0) {
         snprintf(payload, sizeof(payload), "{\"state\":\"%s\",\"name\":\"%s\",\"url\":\"%s\",\"bytes\":%u}",
                  state, name, url, (unsigned int)bytes);
+    } else if (error != ESP_OK) {
+        snprintf(payload, sizeof(payload), "{\"state\":\"error\",\"name\":\"%s\",\"error\":\"%s\",\"stage\":\"%s\"}",
+                 valid_screenshot_name(name) ? name : "invalid", esp_err_to_name(error), stage);
     } else {
         snprintf(payload, sizeof(payload), "{\"state\":\"%s\",\"name\":\"%s\"}", state, name);
     }
     ESP_ERROR_CHECK_WITHOUT_ABORT(s_status_callback("state/screenshot", payload, true));
 }
 
-static esp_err_t write_bmp(const uint8_t *frame, uint32_t source_stride, const char *name) {
+static esp_err_t write_bmp(const uint8_t *frame, uint32_t source_stride, const char *name, const char **stage) {
     const uint32_t row_size = BOARD_LCD_WIDTH * SCREENSHOT_BMP_BYTES_PER_PIXEL;
     const uint32_t file_size = SCREENSHOT_BMP_HEADER_SIZE + row_size * BOARD_LCD_HEIGHT;
     uint8_t header[SCREENSHOT_BMP_HEADER_SIZE] = {0};
@@ -109,6 +114,7 @@ static esp_err_t write_bmp(const uint8_t *frame, uint32_t source_stride, const c
     char temp_path[SCREENSHOT_NAME_MAX + 16];
     screenshot_path(file_path, sizeof(file_path), name, "bmp");
     screenshot_path(temp_path, sizeof(temp_path), name, "tmp");
+    *stage = "storage_open";
     FILE *file = fopen(temp_path, "wb");
 
     if (file == NULL) {
@@ -126,12 +132,14 @@ static esp_err_t write_bmp(const uint8_t *frame, uint32_t source_stride, const c
     put_u16_le(&header[28], 24);
     put_u32_le(&header[34], row_size * BOARD_LCD_HEIGHT);
 
+    *stage = "storage_header";
     if (fwrite(header, 1, sizeof(header), file) != sizeof(header)) {
         fclose(file);
         unlink(temp_path);
         return ESP_FAIL;
     }
 
+    *stage = "storage_pixels";
     for (int y = BOARD_LCD_HEIGHT - 1; y >= 0; --y) {
         const uint16_t *source = (const uint16_t *)(frame + ((size_t)y * source_stride));
         for (size_t x = 0; x < BOARD_LCD_WIDTH; ++x) {
@@ -149,27 +157,44 @@ static esp_err_t write_bmp(const uint8_t *frame, uint32_t source_stride, const c
         }
     }
 
-    if (fclose(file) != 0 || rename(temp_path, file_path) != 0) {
+    *stage = "storage_close";
+    if (fclose(file) != 0) {
+        unlink(temp_path);
+        return ESP_FAIL;
+    }
+    /* SPIFFS rename does not replace an existing destination. Keep the old
+     * capture until the new file is complete, then replace under the storage lock. */
+    *stage = "storage_replace";
+    if (unlink(file_path) != 0 && errno != ENOENT) {
+        unlink(temp_path);
+        return ESP_FAIL;
+    }
+    *stage = "storage_rename";
+    if (rename(temp_path, file_path) != 0) {
         unlink(temp_path);
         return ESP_FAIL;
     }
     return ESP_OK;
 }
 
-static esp_err_t capture_frame(const char *name) {
+static esp_err_t capture_frame(const char *name, const char **stage) {
+    *stage = "disabled";
     if (!atomic_load(&s_enabled)) return ESP_ERR_INVALID_STATE;
     const size_t frame_bytes = (size_t)BOARD_LCD_WIDTH * BOARD_LCD_HEIGHT * SCREENSHOT_BYTES_PER_PIXEL;
+    *stage = "frame_allocation";
     uint8_t *frame = heap_caps_malloc(frame_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (frame == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
     esp_err_t result = ESP_FAIL;
+    *stage = "display_lock";
     if (!lvgl_port_lock(1000)) {
         free(frame);
         return ESP_ERR_TIMEOUT;
     }
 
+    *stage = "framebuffer";
     lv_draw_buf_t *active = s_board != NULL ? lv_display_get_buf_active(s_board->display) : NULL;
     if (active != NULL && active->data != NULL && active->header.w == BOARD_LCD_WIDTH &&
         active->header.h == BOARD_LCD_HEIGHT && active->header.stride >= BOARD_LCD_WIDTH * SCREENSHOT_BYTES_PER_PIXEL) {
@@ -183,6 +208,7 @@ static esp_err_t capture_frame(const char *name) {
     lvgl_port_unlock();
 
     if (result == ESP_OK) {
+        *stage = "storage_write";
         xSemaphoreTake(s_storage_lock, portMAX_DELAY);
         if (atomic_load(&s_enabled)) {
             bool existing = false;
@@ -192,12 +218,12 @@ static esp_err_t capture_frame(const char *name) {
                 screenshot_path(path, sizeof(path), s_saved_names[s_next_saved], "bmp");
                 unlink(path);
             }
-            result = write_bmp(frame, BOARD_LCD_WIDTH * SCREENSHOT_BYTES_PER_PIXEL, name);
+            result = write_bmp(frame, BOARD_LCD_WIDTH * SCREENSHOT_BYTES_PER_PIXEL, name, stage);
             if (result == ESP_OK && !existing) {
                 strlcpy(s_saved_names[s_next_saved], name, SCREENSHOT_NAME_MAX);
                 s_next_saved = (s_next_saved + 1) % 4;
             }
-        } else result = ESP_ERR_INVALID_STATE;
+        } else { *stage = "disabled"; result = ESP_ERR_INVALID_STATE; }
         xSemaphoreGive(s_storage_lock);
     }
     free(frame);
@@ -211,16 +237,17 @@ static void screenshot_task(void *arg) {
         if (xQueueReceive(s_capture_queue, &request, portMAX_DELAY) != pdTRUE) {
             continue;
         }
-        publish_status("capturing", 0, request.name);
-        const esp_err_t result = capture_frame(request.name);
+        publish_status("capturing", 0, request.name, ESP_OK, NULL);
+        const char *stage = "capture";
+        const esp_err_t result = capture_frame(request.name, &stage);
         if (result == ESP_OK) {
             const size_t file_size = SCREENSHOT_BMP_HEADER_SIZE +
                                      (size_t)BOARD_LCD_WIDTH * BOARD_LCD_HEIGHT * SCREENSHOT_BMP_BYTES_PER_PIXEL;
             ESP_LOGI(TAG, "Screenshot saved as %s", request.name);
-            publish_status("ready", file_size, request.name);
+            publish_status("ready", file_size, request.name, ESP_OK, NULL);
         } else {
-            ESP_LOGW(TAG, "Screenshot capture failed: %s", esp_err_to_name(result));
-            publish_status("error", 0, request.name);
+            ESP_LOGW(TAG, "Screenshot capture failed at %s: %s (errno %d)", stage, esp_err_to_name(result), errno);
+            publish_status("error", 0, request.name, result, stage);
         }
     }
 }
@@ -282,7 +309,7 @@ esp_err_t screenshot_init(const display_board_handle_t *board, screenshot_status
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (!app_config_get()->screenshot_token[0]) return ESP_OK;
+    s_status_callback = status_callback;
     s_storage_lock = xSemaphoreCreateMutex();
     ESP_RETURN_ON_FALSE(s_storage_lock != NULL, ESP_ERR_NO_MEM, TAG, "Screenshot mutex allocation failed");
     const esp_vfs_spiffs_conf_t spiffs = {
@@ -328,6 +355,7 @@ esp_err_t screenshot_init(const display_board_handle_t *board, screenshot_status
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &uri), TAG, "HTTP URI registration failed");
     ESP_RETURN_ON_FALSE(xTaskCreate(screenshot_task, "screenshot", 4096, NULL, 4, NULL) == pdPASS,
                         ESP_ERR_NO_MEM, TAG, "Screenshot task creation failed");
+    s_ready = true;
     return ESP_OK;
 }
 
@@ -336,19 +364,23 @@ esp_err_t screenshot_request(void) {
 }
 
 esp_err_t screenshot_request_named(const char *name) {
-    if (s_capture_queue == NULL || !atomic_load(&s_enabled)) {
+    if (!s_ready || !atomic_load(&s_enabled)) {
+        publish_status("error", 0, name, ESP_ERR_INVALID_STATE, "disabled_or_uninitialized");
         return ESP_ERR_INVALID_STATE;
     }
     if (!valid_screenshot_name(name)) {
+        publish_status("error", 0, name, ESP_ERR_INVALID_ARG, "name");
         return ESP_ERR_INVALID_ARG;
     }
     screenshot_request_t request = {0};
     strlcpy(request.name, name, sizeof(request.name));
-    return xQueueSend(s_capture_queue, &request, 0) == pdPASS ? ESP_OK : ESP_ERR_TIMEOUT;
+    if (xQueueSend(s_capture_queue, &request, 0) == pdPASS) return ESP_OK;
+    publish_status("error", 0, name, ESP_ERR_TIMEOUT, "queue_busy");
+    return ESP_ERR_TIMEOUT;
 }
 
 esp_err_t screenshot_set_enabled(bool enabled) {
-    if (s_capture_queue == NULL) return enabled ? ESP_ERR_INVALID_STATE : ESP_OK;
+    if (!s_ready || (enabled && !app_config_get()->screenshot_token[0])) return enabled ? ESP_ERR_INVALID_STATE : ESP_OK;
     atomic_store(&s_enabled, enabled);
     return ESP_OK;
 }

@@ -124,6 +124,8 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
     snprintf(topic, sizeof(topic), "%s/cmd/config/ap", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
+    snprintf(topic, sizeof(topic), "%s/cmd/config/screenshot_token", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
     snprintf(topic, sizeof(topic), "%s/cmd/screenshot", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
@@ -305,6 +307,13 @@ static void on_mqtt_message(const char *topic, const char *payload, bool retaine
         return;
     }
 
+    snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/config/screenshot_token", config->base_topic);
+    if (strcmp(topic, expected_topic) == 0) {
+        const esp_err_t err = app_config_set_screenshot_token(payload);
+        ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/error",
+            err == ESP_OK ? "" : "Screenshot token must contain 32-64 ASCII letters and digits", true));
+        return;
+    }
     snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/screenshot", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
         const esp_err_t err = payload[0] == '\0' ? screenshot_request() : screenshot_request_named(payload);

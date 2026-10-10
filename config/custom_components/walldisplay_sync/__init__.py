@@ -212,7 +212,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await mqtt.async_publish(hass, f"{topic}/set/screenshots_enabled", "ON" if config["screenshots_enabled"] else "OFF", 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/pages", json.dumps(layout_payload(config), ensure_ascii=False), 1, True)
         # Keep the compatibility payload aligned with the generated manifest.
-        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "1.1.0", "contract": "10"}), 1, True)
+        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "1.2.0", "contract": "11"}), 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/name", panel_name, 1, True)
         await mqtt.async_publish(
             hass,
