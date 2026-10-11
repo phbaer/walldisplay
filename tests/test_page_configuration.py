@@ -204,7 +204,7 @@ class GridRuntimeTests(unittest.IsolatedAsyncioTestCase):
             publish = stack.enter_context(patch.object(integration.mqtt, "async_publish", new_callable=AsyncMock))
             stack.enter_context(patch.object(integration.mqtt, "async_subscribe", side_effect=subscribe))
             for name in ("async_register_cache", "async_unregister_cache", "ArtworkCache",
-                         "async_track_state_change_event", "async_track_time_interval"):
+                         "async_track_state_change_event", "async_track_time_interval", "async_setup_device_link"):
                 stack.enter_context(patch.object(integration, name))
             self.assertTrue(await integration.async_setup_entry(hass, entry))
             payloads = {call.args[1]: call.args[2] for call in publish.call_args_list}

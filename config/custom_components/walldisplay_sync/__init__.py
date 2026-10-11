@@ -48,6 +48,7 @@ from .pages import GRID_COUNT, layout_payload, grid_payload
 from .sync_jobs import publish_independently
 from .configuration import migrate_configuration
 from .runtime import WallDisplayRuntime
+from .device import async_setup_device_link
 from .artwork import ArtworkCache, async_register_cache, async_unregister_cache
 from .updates import async_latest_release, is_newer
 
@@ -413,6 +414,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     async def panel_sync(_: mqtt.ReceiveMessage) -> None:
         await publish_all()
 
+    async_setup_device_link(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
     if entity_id:
         entry.async_on_unload(async_track_state_change_event(hass, [entity_id], publish_media))
