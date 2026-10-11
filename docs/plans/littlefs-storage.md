@@ -1,9 +1,9 @@
 # LittleFS screenshot storage
 
 Branch: `feature/littlefs-storage`, based on `main` at `120b953`.
-Selected release: **1.2.0**, explicitly selected by the maintainer to share the release with the screenshot improvements (overriding the workflow’s migration classification).
+Selected release: **1.2.1**, explicitly requested by the maintainer after rebasing (overriding the earlier shared **1.2.0** selection and the workflow’s migration classification).
 Original MQTT contract: **10**, unchanged by LittleFS; the rebase retains main’s newer contract as recorded below. Keep the release selection fixed for this branch.
-Rebased onto `main` at `af94b5f`, retaining its MQTT contract **11** and screenshot diagnostics/token controls. Release **1.2.0** remains unchanged.
+Rebased onto `main` at `af94b5f`, retaining its MQTT contract **11** and screenshot diagnostics/token controls. The maintainer subsequently selected release **1.2.1**; keep that selection fixed for follow-up work.
 
 Only transient screenshot storage changes. Mount by the existing `storage` label and retain its legacy subtype, offset, and size so application-only OTA and older SPIFFS rollback firmware can both find it. Format automatically on mount failure, as the old firmware did. Credentials and configuration remain in NVS. Close the temporary BMP before atomic rename replacement; never unlink the destination first on LittleFS.
 

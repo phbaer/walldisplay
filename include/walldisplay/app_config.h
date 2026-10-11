@@ -15,7 +15,7 @@
  * Tagged release builds may override this at compile time with their exact
  * release tag, while the checked-in development version remains canonical. */
 #ifndef APP_FW_VERSION
-#define APP_FW_VERSION "1.2.0"
+#define APP_FW_VERSION "1.2.1"
 #endif
 /* Increment whenever MQTT topics, payloads, or semantics change. */
 #define APP_CONTRACT_VERSION "11"
