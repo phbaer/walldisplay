@@ -1,4 +1,5 @@
 #include "walldisplay/ui.h"
+#include "walldisplay/mqtt_app.h"
 
 #include "walldisplay/app_config.h"
 #include "walldisplay/display_dimming.h"
@@ -101,6 +102,10 @@ static void touch_activity_event_cb(lv_event_t *event) {
     LV_UNUSED(event);
     display_dimming_wake();
 }
+const char *ui_current_page_name(void) {
+    return panel_page_name(s_current_page);
+}
+
 static void page_nav_event_cb(lv_event_t *event);
 
 /* Static Noto Sans renders all UI text without runtime glyph allocation. */
@@ -553,6 +558,9 @@ static void show_page_locked(panel_page_id_t id) {
         else lv_obj_add_flag(s_pages[i], LV_OBJ_FLAG_HIDDEN);
     }
     s_current_page = id;
+    char page_topic[APP_TOPIC_MAX_LEN + 16];
+    snprintf(page_topic, sizeof(page_topic), "%s/state/page", app_config_get()->base_topic);
+    if (mqtt_app_client() != NULL) (void)mqtt_app_publish_async(page_topic, panel_page_name(id), true);
     lv_label_set_text_fmt(s_title_label, "%s%s%s", s_panel_name,
                           s_panel_name[0] ? " - " : "", s_layout.titles[id]);
     for (size_t i = 0; i < PANEL_PAGE_COUNT; ++i) {

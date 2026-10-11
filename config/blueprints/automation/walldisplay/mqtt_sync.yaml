@@ -1,9 +1,11 @@
 blueprint:
   # Generated from pyproject.toml by tools/sync_project_version.py.
-  name: WallDisplay MQTT Sync v1.1.0 (Contract 10)
+  name: WallDisplay MQTT Sync v1.2.0 (Contract 11)
   description: >-
     Publish the panel hostname, clock, weather, rich media controls and favourites, configurable weather/media/buttons/About pages, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
+    Firmware discovery exposes all canonical MQTT controls and diagnostic payloads on the panel device;
+    this automation restores its configured inputs on synchronization after manual device edits.
   homeassistant:
     min_version: 2024.10.0
   domain: automation
@@ -156,7 +158,7 @@ blueprint:
       selector: {action: {}}
     screenshots_enabled:
       name: Enable authenticated screenshots
-      description: Requires a screenshot token provisioned in panel_config.yaml. Disabled by default.
+      description: Requires a token configured through the device Screenshot Token entity, setup portal, or panel_config.yaml. For HA image previews, use a passive walldisplay_sync companion with screenshot_preview_only enabled and the same token. Disabled by default.
       default: false
       selector: {boolean: {}}
     time_format:
@@ -560,8 +562,8 @@ variables:
   grid5_state_entity: !input grid5_state_entity
   grid6_label: !input grid6_label
   grid6_state_entity: !input grid6_state_entity
-  blueprint_version: "1.1.0"
-  panel_contract_version: "10"
+  blueprint_version: "1.2.0"
+  panel_contract_version: "11"
   panel_topic: !input panel_topic
   panel_name: !input panel_name
   time_format: !input time_format

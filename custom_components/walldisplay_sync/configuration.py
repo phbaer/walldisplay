@@ -88,6 +88,13 @@ def _update_api_url(value):
     return value
 
 
+def _screenshot_token(value: object) -> str:
+    token = str(value)
+    if token and (not 32 <= len(token) <= 64 or not token.isascii() or not token.isalnum()):
+        raise vol.Invalid("Screenshot token must contain 32-64 ASCII letters or digits")
+    return token
+
+
 def _form_schema(fields):
     """Optional entity selectors must omit empty defaults to remain valid in HA."""
     return vol.Schema({
@@ -138,6 +145,10 @@ def _updates_form_schema(defaults: dict[str, object]) -> vol.Schema:
 
 def _display_schema(defaults: dict[str, object]) -> vol.Schema:
     return _form_schema({
+        vol.Optional("screenshot_token", default=defaults.get("screenshot_token", "")): selector.TextSelector(
+            selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+        ),
+        vol.Optional("screenshot_preview_only", default=defaults.get("screenshot_preview_only", False)): bool,
         vol.Optional("screenshots_enabled", default=defaults.get("screenshots_enabled", False)): bool,
         vol.Optional(CONF_WEATHER_ENTITY, default=defaults.get(CONF_WEATHER_ENTITY, "")): selector.EntitySelector(
             selector.EntitySelectorConfig(domain="weather")
@@ -260,6 +271,7 @@ def _complete_config(value):
     if not data[CONF_PANEL_NAME] or len(data[CONF_PANEL_NAME].encode("utf-8")) > 64:
         raise vol.Invalid("Display name must be 1-64 UTF-8 bytes")
     data[CONF_PANEL_HOSTNAME] = _hostname_from_display_name(data[CONF_PANEL_NAME])
+    data["screenshot_token"] = _screenshot_token(data.get("screenshot_token", ""))
     layout_payload(data)
     for slot in range(1, GRID_COUNT + 1):
         if len(data[f"grid{slot}_label"].encode("utf-8")) > 96:

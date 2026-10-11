@@ -53,7 +53,9 @@
           "dim_after": "Dim display after (seconds)",
           "screen_off_after": "Turn screen off after dimming (seconds)",
           "dim_brightness": "Dim brightness (percent)",
-          "screenshots_enabled": "Enable authenticated screenshots (requires provisioned token)"
+          "screenshots_enabled": "Enable authenticated screenshots (requires configured token)",
+          "screenshot_token": "Screenshot preview token (same token configured on the panel)",
+          "screenshot_preview_only": "Preview only: keep synchronization in the MQTT Sync blueprint"
         }
       },
       "favorites": {
@@ -179,7 +181,8 @@
       "invalid_panel_hostname": "Use 1-32 lowercase ASCII letters, numbers, or hyphens; do not start or end with a hyphen.",
       "invalid_display_name": "Use 1-64 printable UTF-8 bytes and include at least one letter or number.",
       "invalid_update_api_url": "Enter an HTTPS URL no longer than 512 characters, or leave it empty to disable update checks.",
-      "invalid_config": "Check configuration keys, entity IDs, page order, startup page, label lengths, and panel topic. Existing entries must keep their topic."
+      "invalid_config": "Check configuration keys, entity IDs, page order, startup page, label lengths, and panel topic. Existing entries must keep their topic.",
+      "invalid_screenshot_token": "Use 32-64 ASCII letters and digits, or leave blank to disable previews."
     }
   },
   "options": {
@@ -229,7 +232,9 @@
           "dim_after": "Dim display after (seconds)",
           "screen_off_after": "Turn screen off after dimming (seconds)",
           "dim_brightness": "Dim brightness (percent)",
-          "screenshots_enabled": "Enable authenticated screenshots (requires provisioned token)"
+          "screenshots_enabled": "Enable authenticated screenshots (requires configured token)",
+          "screenshot_token": "Screenshot preview token (same token configured on the panel)",
+          "screenshot_preview_only": "Preview only: keep synchronization in the MQTT Sync blueprint"
         }
       },
       "favorites": {
@@ -354,7 +359,8 @@
     "error": {
       "invalid_pages": "Select unique pages and an enabled startup page; titles allow 48 UTF-8 bytes.",
       "invalid_panel_hostname": "Use 1-32 lowercase ASCII letters, numbers, or hyphens; do not start or end with a hyphen.",
-      "invalid_config": "Check configuration keys, entity IDs, page order, startup page, label lengths, and panel topic. Existing entries must keep their topic."
+      "invalid_config": "Check configuration keys, entity IDs, page order, startup page, label lengths, and panel topic. Existing entries must keep their topic.",
+      "invalid_screenshot_token": "Use 32-64 ASCII letters and digits, or leave blank to disable previews."
     }
   },
   "issues": {
@@ -362,7 +368,7 @@
       "title": "Firmware update for {panel_name}: {current_version} to {latest_version}",
       "fix_flow": {
         "abort": {
-            "update_started": "The update request was sent to {panel_name} for {current_version} to {latest_version}. The repair will clear when the panel reports the new version.",
+          "update_started": "The update request was sent to {panel_name} for {current_version} to {latest_version}. The repair will clear when the panel reports the new version.",
           "update_failed": "{panel_name} rejected the update request: {error_detail}",
           "update_timeout": "No update status was received from {panel_name}. Check that the panel is online and try again.",
           "update_in_progress": "An update is already running for {panel_name}. Wait for it to finish before trying again.",

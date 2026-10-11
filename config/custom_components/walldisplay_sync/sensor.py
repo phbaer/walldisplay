@@ -3,9 +3,6 @@ from __future__ import annotations
 
 from homeassistant.components import mqtt
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.helpers.entity import DeviceInfo
-
-from .const import DOMAIN
 
 
 async def async_setup_entry(hass, entry, async_add_entities) -> None:
@@ -26,8 +23,6 @@ class WallDisplayMqttSensor(SensorEntity):
         self._attr_name = name
         self._attr_icon = icon
         self._attr_unique_id = f"{runtime.identifier}_{suffix.replace('/', '_')}"
-        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, runtime.identifier)}, name=runtime.name,
-                                            manufacturer="Guition", model="ESP32-4848S040")
 
     async def async_subscribe(self) -> None:
         async def message_received(msg):

@@ -124,6 +124,8 @@ static void subscribe_runtime_topics(esp_mqtt_client_handle_t client) {
     snprintf(topic, sizeof(topic), "%s/cmd/config/ap", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
+    snprintf(topic, sizeof(topic), "%s/cmd/config/screenshot_token", config->base_topic);
+    esp_mqtt_client_subscribe(client, topic, 1);
     snprintf(topic, sizeof(topic), "%s/cmd/screenshot", config->base_topic);
     esp_mqtt_client_subscribe(client, topic, 1);
 
@@ -198,6 +200,8 @@ static void on_mqtt_connected(esp_mqtt_client_handle_t client, void *user_ctx) {
     char hostname[33];
     if (app_config_display_hostname(config->display_name, hostname, sizeof(hostname)) == ESP_OK)
         ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/hostname", hostname, true));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/page", ui_current_page_name(), true));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/screenshots_enabled", screenshot_is_enabled() ? "ON" : "OFF", true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/ap", wifi_manager_ap_active() ? "ON" : "OFF", true));
     ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/default_page", app_config_default_page_name(config->default_page), true));
     char layout_json[PANEL_LAYOUT_JSON_SIZE];
@@ -305,6 +309,13 @@ static void on_mqtt_message(const char *topic, const char *payload, bool retaine
         return;
     }
 
+    snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/config/screenshot_token", config->base_topic);
+    if (strcmp(topic, expected_topic) == 0) {
+        const esp_err_t err = app_config_set_screenshot_token(payload);
+        ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/error",
+            err == ESP_OK ? "" : "Screenshot token must contain 32-64 ASCII letters and digits", true));
+        return;
+    }
     snprintf(expected_topic, sizeof(expected_topic), "%s/cmd/screenshot", config->base_topic);
     if (strcmp(topic, expected_topic) == 0) {
         const esp_err_t err = payload[0] == '\0' ? screenshot_request() : screenshot_request_named(payload);
@@ -341,7 +352,13 @@ static void on_mqtt_message(const char *topic, const char *payload, bool retaine
     for (size_t i = 0; i < 6; ++i) {
         snprintf(expected_topic, sizeof(expected_topic), "%s/set/grid/%u", config->base_topic, (unsigned)i + 1);
         if (strcmp(topic, expected_topic) == 0) {
-            ESP_ERROR_CHECK_WITHOUT_ABORT(ui_set_grid_button(i, payload));
+            const esp_err_t err = ui_set_grid_button(i, payload);
+            ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic("state/config/error", err == ESP_OK ? "" : "Invalid grid payload", true));
+            if (err == ESP_OK) {
+                char state_suffix[32];
+                snprintf(state_suffix, sizeof(state_suffix), "state/grid/%u", (unsigned)i + 1);
+                ESP_ERROR_CHECK_WITHOUT_ABORT(publish_runtime_topic(state_suffix, payload, true));
+            }
             return;
         }
     }

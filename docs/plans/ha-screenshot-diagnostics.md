@@ -1,0 +1,34 @@
+# Home Assistant screenshot diagnostics
+
+Feature branch: `feature/ha-screenshot-diagnostics`.
+Base: `120b953` on `main` (onboarding release 1.1.0, contract 10; squash of the original `11490dd` base).
+Selected release: **1.2.0**. Selected MQTT contract: **11**.
+Keep these values unchanged for all follow-up commits on this branch.
+
+Expose IPv4 and both IPv6 address diagnostics, a command-only password token setting, capture button, and structured screenshot status through firmware MQTT Discovery. Both synchronization alternatives use the same entities and retain their existing screenshot-enable configuration. Tokens persist without reboot and are never returned in MQTT state. Capture errors identify the failing stage and ESP-IDF error, including rejected requests.
+
+Live validation on 10.0.2.73 reproduced a successful first capture followed by an error for the same name on the pre-change firmware. SPIFFS rejects rename over an existing destination; the BMP writer now removes the old destination only after completing the temporary file, under the storage lock. A native regression test simulates SPIFFS rename semantics and verifies replacement pixels. At that implementation step, updated firmware had been built but not installed on the panel.
+
+## Complete device controls
+
+The maintainer expanded this same feature to expose all canonical MQTT commands and writable inputs and every diagnostic payload on the physical device. Retain release 1.2.0 and contract 11. Add current-page telemetry and accepted-grid canonical state; preserve secrets as command-only values. Firmware discovery serves both synchronization alternatives, and native integration entities share its device identifier while keeping their unique IDs. HA text entities support 255 characters; larger JSON remains available as attributes and through existing configuration/MQTT publishing. Manual overrides may be restored by the selected synchronization path. Validate the actual discovery payloads against installed Home Assistant schemas and independently enumerate endpoint coverage.
+
+Control expansion validation: 50 Python tests and native tests passed, including compilation of actual firmware discovery, validation of 139 entity payloads against Home Assistant schemas, all canonical endpoint coverage, common device identifiers, zero-preserving display templates, and media volume conversion. Firmware build, YAML parsing, component/version consistency, diff checks, and OTA stack guard passed. HA frontend/entity migration behavior and live firmware controls have not been verified on a running Home Assistant instance; firmware was unflashed at that implementation step.
+
+## Duplicate device cleanup
+
+The integration no longer supplies a DeviceInfo that registers its own copy of the MQTT device. It links native entity-registry records explicitly to the existing MQTT-owned device on setup and registry events, including discovery arriving later. Keep the physical MQTT device's internal ID and all entity IDs/unique IDs. Remove only positively identified, empty legacy devices belonging exclusively to this integration, with no via-device dependents or child devices. Retain foreign entities and unrelated devices. The removed integration-only UUID cannot also survive; device-based automations targeting it need review. Release 1.2.0 and contract 11 remain unchanged because this is an integration-only follow-up.
+
+Cleanup validation: 52 Python tests passed, including real Home Assistant device/entity-registry tests for both discovery orders, disabled native entities, repeated setup, stable MQTT UUID and entity IDs, retained user device name, and preservation of foreign entities. Component/version consistency and diff checks passed. No firmware or blueprint behavior changed; physical Home Assistant deployment is not accessible in this workspace.
+
+## Capture reboot fix
+
+On the attached panel at 10.0.2.73, running v1.2.0-rc.1 in ota_0, a capture reproduced a LoadProhibited panic with an invalid display pointer. screenshot_init retained a pointer to app_main's local board structure after the startup task returned and released its stack. Store only the LVGL-owned display handle, whose lifetime extends across captures. A native regression test overwrites the caller's board structure before exercising the real capture code.
+
+The original active application was backed up outside the repository and both its signature and the fixed image were verified with the same configured signing key. The fixed signed application was written only to ota_0 at 0x330000, preserving the bootloader, partition table, OTA data, and NVS settings. Live verification passed: three captures with the same name and three authenticated 480x480 BMP downloads completed without reboot/panic; telemetry showed uptime continuing to 60 seconds. Firmware build, 53 Python tests, native tests, version/component and diff checks, and OTA stack guard passed. The token is never committed or logged. Retain release 1.2.0 and contract 11 for this follow-up.
+
+## Default capture and Home Assistant image preview
+
+The discovery button now explicitly publishes `screenshot` rather than relying on HA's default `PRESS` payload. Named-capture controls remain available. A native ImageEntity fetches the named BMP through the panel's private LAN address from device telemetry, supplies the configured bearer token only server-side, validates the bounded 480x480 BMP, and converts it to PNG in an executor. Ignore MQTT-provided URLs, disallow redirects, invalidate stale fetch results, and clear the image on offline status. Expose capture/download errors without exposing tokens. Full integration mode includes the preview. For blueprint users, screenshot_preview_only loads only the image platform and never publishes synchronization/commands/update requests. Track loaded platforms so switching modes unloads the previous platforms correctly. Token configuration is a password field and must match the panel's separately provisioned token. Retain release 1.2.0 and contract 11.
+
+Preview validation: firmware build, native checks, YAML parsing, component/version and diff checks, and OTA stack guard passed. All 56 Python tests passed. Coverage includes image conversion, safe LAN address validation, authenticated requests with redirects disabled, 401/capture errors, offline image clearing, stale result rejection, and preview-only setup/mode switching without MQTT synchronization publishing. The updated button definition was flashed to the attached panel; the actual retained discovery payload is `screenshot`, and the corresponding capture reached `ready`. Live HTTP retrieval rejected the previously provided throw-away token with 401, so verification of the new preview on the user's HA frontend remains pending installation and the currently valid token.
