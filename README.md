@@ -2,6 +2,14 @@
 
 Firmware for the ESP32-4848S040 wall panel, built with ESP-IDF, LVGL, MQTT, and Home Assistant MQTT Discovery. It shows time, weather, media, and an About page with live device and network diagnostics, optional measurement chips, a configurable sequence of weather, media, buttons, and About pages, and up to five footer buttons; supports display dimming, HTTPS OTA with rollback, diagnostics, and screenshots.
 
+## Panel screenshots
+
+Actual panel captures with only the device name and IP/MAC identifiers redacted; page names and layout are preserved. See the [screenshot gallery](docs/screenshots/README.md) for full-size images and capture instructions.
+
+| Weather | Media | About |
+| --- | --- | --- |
+| ![Weather page](docs/screenshots/weather-redacted.png) | ![Media playback page](docs/screenshots/media-redacted.png) | ![About page with identifying details redacted](docs/screenshots/about-redacted.png) |
+
 ## Install a precompiled release (normal users)
 
 Signed firmware releases are published on the [Forgejo releases page](https://git.baer.one/phbaer/walldisplay/releases). A normal user does not need ESP-IDF or this source tree to flash a release:

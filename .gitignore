@@ -41,8 +41,15 @@ Thumbs.db
 managed_components/
 .esphome/
 
-# Generated documentation screenshots
-docs/screenshots/
+# Raw panel captures may contain device identities and network information.
+/*.bmp
+
+# Ignore generated captures; keep only the reviewed public documentation images.
+docs/screenshots/*
+!docs/screenshots/README.md
+!docs/screenshots/weather-redacted.png
+!docs/screenshots/media-redacted.png
+!docs/screenshots/about-redacted.png
 
 # Signed builds and private signing material
 /build-signed/
