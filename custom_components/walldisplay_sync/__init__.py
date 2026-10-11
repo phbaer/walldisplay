@@ -53,7 +53,7 @@ from .artwork import ArtworkCache, async_register_cache, async_unregister_cache
 from .updates import async_latest_release, is_newer
 
 _LOGGER = logging.getLogger(__name__)
-_PLATFORMS = [Platform.BUTTON, Platform.EVENT, Platform.SENSOR]
+_PLATFORMS = [Platform.BUTTON, Platform.EVENT, Platform.SENSOR, Platform.IMAGE]
 _UPDATE_ISSUE_PREFIX = "firmware_update_"
 _UPDATE_CHECK_INTERVAL = timedelta(hours=6)
 _UPDATE_RETRY_INTERVAL = timedelta(minutes=5)
@@ -95,6 +95,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     irradiance_entity = config.get(CONF_IRRADIANCE_ENTITY, "")
     update_api_url = config.get(CONF_UPDATE_API_URL, "")
     entry.runtime_data = WallDisplayRuntime(hass, topic, entry.title, entry.unique_id or entry.entry_id)
+    entry.runtime_data.platforms = [Platform.IMAGE] if config.get("screenshot_preview_only", False) else _PLATFORMS
+    if config.get("screenshot_preview_only", False):
+        ir.async_delete_issue(hass, DOMAIN, f"{_UPDATE_ISSUE_PREFIX}{entry.entry_id}")
+        async_setup_device_link(hass, entry)
+        await hass.config_entries.async_forward_entry_setups(entry, [Platform.IMAGE])
+        entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+        return True
     artwork = ArtworkCache(hass, entry.entry_id)
     async_register_cache(hass, artwork)
     entry.async_on_unload(lambda: async_unregister_cache(hass, entry.entry_id))
@@ -450,7 +457,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    return await hass.config_entries.async_unload_platforms(entry, _PLATFORMS)
+    return await hass.config_entries.async_unload_platforms(entry, entry.runtime_data.platforms)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

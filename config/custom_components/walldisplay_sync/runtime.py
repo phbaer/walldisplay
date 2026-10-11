@@ -18,6 +18,7 @@ class WallDisplayRuntime:
     update_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     update_running: bool = False
     update_target: str = ""
+    platforms: list[Any] = field(default_factory=list)
 
     @property
     def device_identifiers(self) -> set[tuple[str, str]]:

@@ -78,6 +78,10 @@ static esp_err_t publish_discovery_options(esp_mqtt_client_handle_t client,
         cJSON_AddStringToObject(root, "stat_t", state_topic);
     }
     cJSON_AddStringToObject(root, "avty_t", availability_topic);
+    if (strcmp(object_suffix, "screenshot") == 0) {
+        cJSON_AddStringToObject(root, "pl_prs", "screenshot");
+        cJSON_AddBoolToObject(root, "ret", false);
+    }
     if (strcmp(object_suffix, "screenshot_token") == 0) {
         cJSON_AddStringToObject(root, "mode", "password");
         cJSON_AddStringToObject(root, "ent_cat", "config");

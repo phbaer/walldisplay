@@ -108,6 +108,7 @@ int main(void) {
             'state/config/default_page', 'state/config/base_topic', 'state/page', 'state/contract_version',
             'state/screenshots_enabled', 'state/display_power', 'state/media/power', 'state/hostname'} <= states
     assert identifiers == {('walldisplay_wd_test_panel_device',)}
+    assert records['walldisplay_wd_test_panel_screenshot']['pl_prs'] == 'screenshot'
     token = records['walldisplay_wd_test_panel_screenshot_token']
     assert token['mode'] == 'password' and 'stat_t' not in token
     for suffix in ('weather', 'media', 'device_diagnostics', 'screenshot_status', 'update_status', 'page_layout'):

@@ -45,7 +45,7 @@ from .const import (
 from .configuration import (
     _basic_schema, _display_schema, _favorites_schema, _count_schema, _chip_schema,
     _footer_schema, _configured_count, _clear_unselected, _pages_schema, _grid_schema,
-    _updates_form_schema, _update_api_url, _complete_config, _merge_form, migrate_configuration,
+    _updates_form_schema, _update_api_url, _screenshot_token, _complete_config, _merge_form, migrate_configuration,
     _panel_hostname, _hostname_from_display_name,
 )
 
@@ -145,6 +145,10 @@ class WallDisplayFlowSteps:
 
     async def async_step_display(self, user_input=None):
         if user_input is not None:
+            try:
+                _screenshot_token(user_input.get("screenshot_token", ""))
+            except vol.Invalid:
+                return self.async_show_form(step_id="display", data_schema=_display_schema(user_input), errors={"screenshot_token": "invalid_screenshot_token"})
             _merge_form(self._data, user_input, _display_schema(self._data))
             return await self.async_step_configure()
         return self.async_show_form(step_id="display", data_schema=_display_schema(self._data))

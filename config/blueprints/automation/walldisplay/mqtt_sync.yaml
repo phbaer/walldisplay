@@ -158,7 +158,7 @@ blueprint:
       selector: {action: {}}
     screenshots_enabled:
       name: Enable authenticated screenshots
-      description: Requires a token configured through the device Screenshot Token entity, setup portal, or panel_config.yaml. Disabled by default.
+      description: Requires a token configured through the device Screenshot Token entity, setup portal, or panel_config.yaml. For HA image previews, use a passive walldisplay_sync companion with screenshot_preview_only enabled and the same token. Disabled by default.
       default: false
       selector: {boolean: {}}
     time_format:
