@@ -4,10 +4,11 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+from homeassistant.core import HomeAssistant
+
 import pytest
 import voluptuous as vol
 from PIL import Image
-from homeassistant.core import HomeAssistant
 from custom_components.walldisplay_sync.image import _png, _host, WallDisplayScreenshot
 from custom_components.walldisplay_sync.runtime import WallDisplayRuntime
 from custom_components.walldisplay_sync.configuration import _complete_config
@@ -26,6 +27,10 @@ def test_preview_validation():
     assert _host('127.0.0.1') is None
     assert _host('example.com') is None
     assert _host('8.8.8.8') is None
+    assert _host('fd12:3456::73') == '[fd12:3456::73]'
+    for value in ('::', '::1', 'fe80::73', 'fe80::73%eth0', 'ff02::1',
+                  '2001:4860:4860::8888', '::ffff:10.0.2.73', '2001:db8::73', 'fd12::73%eth0'):
+        assert _host(value) is None
     with pytest.raises(vol.Invalid): _complete_config({'panel_topic': 'panel/test', 'screenshot_token': 'short'})
 
 
@@ -85,4 +90,48 @@ def test_preview_only_does_not_publish_sync(tmp_path):
             entry.options = {'screenshot_preview_only':False}
             await integration.async_unload_entry(hass, entry)
             hass.config_entries.async_unload_platforms.assert_awaited_once_with(entry, [integration.Platform.IMAGE])
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("ipv4,failing_ipv4", [(None, False), ("10.0.2.73", True)])
+def test_ipv6_preview_and_ipv4_fallback(tmp_path, ipv4, failing_ipv4):
+    import json
+    from aiohttp import ClientConnectionError
+
+    async def run():
+        hass = HomeAssistant(str(tmp_path))
+        token = "b" * 32
+        entity = WallDisplayScreenshot(hass, WallDisplayRuntime(hass, "panel/test", "Panel", "id"), token)
+        entity.hass = hass
+        entity.async_write_ha_state = Mock()
+        async def chunks(_size):
+            yield bmp()
+        response = SimpleNamespace(status=200, content=SimpleNamespace(iter_chunked=chunks))
+        context = AsyncMock()
+        context.__aenter__.return_value = response
+        def get(url, **kwargs):
+            assert kwargs["headers"] == {"Authorization": "Bearer " + token}
+            assert kwargs["allow_redirects"] is False
+            if "10.0.2.73" in url and failing_ipv4:
+                raise ClientConnectionError("unreachable IPv4")
+            return context
+        session = SimpleNamespace(get=Mock(side_effect=get))
+        async def send(suffix, payload):
+            await entity._message(SimpleNamespace(topic="panel/test/"+suffix, payload=payload))
+        with patch("custom_components.walldisplay_sync.image.async_get_clientsession", return_value=session):
+            await send("status", "online")
+            await send("state/device", json.dumps({"ip": ipv4 or "0.0.0.0", "ipv6_global": "fd12:3456::73"}))
+            await send("state/screenshot", '{"state":"ready","name":"ipv6","url":"http://evil.example/"}')
+            assert entity.available
+            assert (await entity.async_image()).startswith(b"\x89PNG")
+            assert session.get.call_args.args[0] == "http://[fd12:3456::73]:8080/screenshot.bmp?name=ipv6"
+            assert session.get.call_count == (2 if failing_ipv4 else 1)
+            # A prefix change invalidates the generation and uses only current hosts.
+            await send("state/device", '{"ip":"0.0.0.0","ipv6_global":"fd34::73"}')
+            assert session.get.call_args.args[0] == "http://[fd34::73]:8080/screenshot.bmp?name=ipv6"
+            requests = session.get.call_count
+            await send("state/device", '{"ip":"0.0.0.0","ipv6_global":"2001:4860::73","ipv6_linklocal":"fe80::73"}')
+            await send("state/screenshot", '{"state":"ready","name":"blocked"}')
+            assert session.get.call_count == requests
+            assert token not in str(entity.extra_state_attributes)
     asyncio.run(run())

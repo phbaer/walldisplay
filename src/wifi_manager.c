@@ -1,6 +1,7 @@
 #include "walldisplay/wifi_manager.h"
 
 #include "walldisplay/app_config.h"
+#include "walldisplay/network_client.h"
 #include "esp_check.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -30,7 +31,6 @@ static esp_netif_t *s_sta_netif;
 static esp_netif_t *s_ap_netif;
 static httpd_handle_t s_portal;
 static bool s_ap_active;
-static bool s_station_ready;
 static bool s_provisioning_mode;
 static TaskHandle_t s_dns_task;
 static int s_dns_socket = -1;
@@ -42,6 +42,8 @@ static TaskHandle_t s_ap_timeout_task;
 static EventGroupHandle_t s_station_events;
 #define STA_GOT_IP_BIT BIT0
 #define STA_DISCONNECTED_BIT BIT1
+#define STA_GOT_IP6_BIT BIT2
+#define STA_READY_BITS (STA_GOT_IP_BIT | STA_GOT_IP6_BIT)
 static int64_t s_ap_last_activity_us;
 static wifi_config_t s_saved_station_config;
 static bool s_saved_station_config_valid;
@@ -173,7 +175,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
                 ESP_LOGI(TAG, "Wi-Fi station started%s", s_provisioning_mode ? " (provisioning; connection held)" : ", connecting");
                 if (!s_provisioning_mode) esp_wifi_connect();
                 break;
+            case WIFI_EVENT_STA_CONNECTED:
+                ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_create_ip6_linklocal(s_sta_netif));
+                break;
             case WIFI_EVENT_STA_DISCONNECTED:
+                if (s_station_events) xEventGroupClearBits(s_station_events, STA_READY_BITS);
                 if (event_data != NULL) {
                     const wifi_event_sta_disconnected_t *disconnected = event_data;
                     ESP_LOGW(TAG, "Wi-Fi disconnected, reason %u, retrying", disconnected->reason);
@@ -188,10 +194,22 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         }
     }
 
+    if (event_base == IP_EVENT && event_id == IP_EVENT_GOT_IP6) {
+        const ip_event_got_ip6_t *event = event_data;
+        if (event->esp_netif != s_sta_netif) return;
+        ESP_LOGI(TAG, "Wi-Fi IPv6: " IPV6STR, IPV62STR(event->ip6_info.ip));
+        const esp_ip6_addr_type_t type = esp_netif_ip6_get_addr_type(&event->ip6_info.ip);
+        if (s_station_events && (type == ESP_IP6_ADDR_IS_GLOBAL || type == ESP_IP6_ADDR_IS_UNIQUE_LOCAL)) {
+            xEventGroupSetBits(s_station_events, STA_GOT_IP6_BIT);
+        }
+    }
+    if (event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) {
+        if (s_station_events) xEventGroupClearBits(s_station_events, STA_GOT_IP_BIT);
+    }
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         const ip_event_got_ip_t *event = (const ip_event_got_ip_t *) event_data;
+        if (event->esp_netif != s_sta_netif) return;
         ESP_LOGI(TAG, "Wi-Fi connected with IP: " IPSTR, IP2STR(&event->ip_info.ip));
-        s_station_ready = true;
         if (s_station_events) xEventGroupSetBits(s_station_events, STA_GOT_IP_BIT);
     }
 }
@@ -215,7 +233,7 @@ esp_err_t wifi_manager_start(void) {
     s_station_events = xEventGroupCreate();
     ESP_RETURN_ON_FALSE(s_station_events != NULL, ESP_ERR_NO_MEM, TAG, "station event group allocation failed");
     ESP_RETURN_ON_ERROR(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL), TAG, "wifi event register failed");
-    ESP_RETURN_ON_ERROR(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL), TAG, "ip event register failed");
+    ESP_RETURN_ON_ERROR(esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL), TAG, "ip event register failed");
 
     wifi_config_t wifi_config = {0};
     /* Copy bounded, NUL-terminated configuration strings without triggering
@@ -252,14 +270,12 @@ esp_err_t wifi_manager_start(void) {
 
     s_wifi_started = true;
     if (provisioning) return wifi_manager_start_ap();
-    s_station_ready = false;
     /* Do not let app_main race ahead and permanently skip MQTT startup while
      * the station is still associating. A bounded wait preserves boot
      * recovery when the configured network is unavailable. */
     if (s_station_events != NULL) {
-        EventBits_t bits = xEventGroupWaitBits(s_station_events, STA_GOT_IP_BIT,
+        (void)xEventGroupWaitBits(s_station_events, STA_READY_BITS,
                                                pdFALSE, pdFALSE, pdMS_TO_TICKS(15000));
-        s_station_ready = (bits & STA_GOT_IP_BIT) != 0;
     }
     return ESP_OK;
 }
@@ -283,21 +299,19 @@ static esp_err_t wifi_manager_test_station(const char *ssid, const char *passwor
     candidate.sta.threshold.authmode = pass_len == 0 ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
     candidate.sta.pmf_cfg.capable = true;
     candidate.sta.pmf_cfg.required = false;
-    xEventGroupClearBits(s_station_events, STA_GOT_IP_BIT | STA_DISCONNECTED_BIT);
-    s_station_ready = false;
+    xEventGroupClearBits(s_station_events, STA_READY_BITS | STA_DISCONNECTED_BIT);
     esp_wifi_disconnect();
     esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &candidate);
     if (err == ESP_OK) err = esp_wifi_connect();
     EventBits_t bits = 0;
-    if (err == ESP_OK) bits = xEventGroupWaitBits(s_station_events, STA_GOT_IP_BIT,
+    if (err == ESP_OK) bits = xEventGroupWaitBits(s_station_events, STA_READY_BITS,
                                                    pdTRUE, pdFALSE, pdMS_TO_TICKS(15000));
-    if (err != ESP_OK || !(bits & STA_GOT_IP_BIT)) {
+    if (err != ESP_OK || !(bits & STA_READY_BITS) || !network_station_ready()) {
         ESP_LOGW(TAG, "Candidate Wi-Fi connection failed; restoring previous network");
         (void) esp_wifi_disconnect();
         (void) esp_wifi_set_config(WIFI_IF_STA, &previous);
-        xEventGroupClearBits(s_station_events, STA_GOT_IP_BIT | STA_DISCONNECTED_BIT);
+        xEventGroupClearBits(s_station_events, STA_READY_BITS | STA_DISCONNECTED_BIT);
         (void) esp_wifi_connect();
-        s_station_ready = false;
         s_saved_station_config_valid = false;
         return ESP_ERR_TIMEOUT;
     }
@@ -309,8 +323,7 @@ static void wifi_manager_restore_saved_station(void) {
     if (!s_saved_station_config_valid) return;
     (void) esp_wifi_disconnect();
     (void) esp_wifi_set_config(WIFI_IF_STA, &s_saved_station_config);
-    xEventGroupClearBits(s_station_events, STA_GOT_IP_BIT | STA_DISCONNECTED_BIT);
-    s_station_ready = false;
+    xEventGroupClearBits(s_station_events, STA_READY_BITS | STA_DISCONNECTED_BIT);
     if (s_saved_station_config.sta.ssid[0] != '\0' &&
         strcmp((const char *)s_saved_station_config.sta.ssid, "YOUR_WIFI_SSID") != 0) {
         (void) esp_wifi_connect();
@@ -322,15 +335,19 @@ typedef struct {
     EventGroupHandle_t events;
     bool connected;
     bool failed;
+    bool alternate;
+    unsigned transport_failures;
+    const char *uri;
 } mqtt_probe_t;
 static void mqtt_probe_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)base;
     mqtt_probe_t *probe = arg;
-    if (id == MQTT_EVENT_CONNECTED) {
+    if (id == MQTT_EVENT_BEFORE_CONNECT) {
+        network_mqtt_before_connect(((esp_mqtt_event_handle_t)data)->client, probe->uri, probe->alternate);
+    } else if (id == MQTT_EVENT_CONNECTED) {
         probe->connected = true;
         xEventGroupSetBits(probe->events, BIT0);
     } else if (id == MQTT_EVENT_ERROR) {
-        probe->failed = true;
         esp_mqtt_event_handle_t event = data;
         if (event != NULL && event->error_handle != NULL) {
             const esp_mqtt_error_codes_t *error = event->error_handle;
@@ -341,7 +358,13 @@ static void mqtt_probe_handler(void *arg, esp_event_base_t base, int32_t id, voi
         } else {
             ESP_LOGW(TAG, "MQTT probe failed without error details");
         }
-        xEventGroupSetBits(probe->events, BIT1);
+        if (event && event->error_handle && event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT &&
+            ++probe->transport_failures < 2) {
+            probe->alternate = !probe->alternate;
+        } else {
+            probe->failed = true;
+            xEventGroupSetBits(probe->events, BIT1);
+        }
     }
 }
 
@@ -353,13 +376,15 @@ static esp_err_t wifi_manager_test_mqtt(const char *uri, const char *username, c
         ESP_LOGW(TAG, "MQTT probe rejected: URI/security mismatch (URI must be mqtts://, or mqtt:// with TLS disabled)");
         return ESP_ERR_INVALID_ARG;
     }
-    mqtt_probe_t probe = {.events = xEventGroupCreate()};
+    mqtt_probe_t probe = {.events = xEventGroupCreate(), .uri = uri};
     if (!probe.events) {
         ESP_LOGW(TAG, "MQTT probe could not allocate its event group");
         return ESP_ERR_NO_MEM;
     }
     esp_mqtt_client_config_t config = {
         .broker.address.uri = uri,
+        .network.timeout_ms = 8000,
+        .network.reconnect_timeout_ms = 100,
         .broker.verification.certificate = tls && ca_certificate && ca_certificate[0] ? ca_certificate : NULL,
         .broker.verification.crt_bundle_attach = tls && (!ca_certificate || !ca_certificate[0]) ? esp_crt_bundle_attach : NULL,
         .credentials.username = username,
@@ -380,7 +405,7 @@ static esp_err_t wifi_manager_test_mqtt(const char *uri, const char *username, c
     }
     if (err == ESP_OK) {
         const EventBits_t bits = xEventGroupWaitBits(probe.events, BIT0 | BIT1, pdTRUE, pdFALSE,
-                                                     pdMS_TO_TICKS(10000));
+                                                     pdMS_TO_TICKS(30000));
         if ((bits & BIT0) == 0) {
             err = (bits & BIT1) ? ESP_FAIL : ESP_ERR_TIMEOUT;
             ESP_LOGW(TAG, "MQTT probe did not connect: %s", esp_err_to_name(err));
@@ -744,7 +769,7 @@ esp_err_t wifi_manager_stop_ap(void) {
 }
 
 bool wifi_manager_ap_active(void) { return s_ap_active; }
-bool wifi_manager_station_ready(void) { return s_station_ready; }
+bool wifi_manager_station_ready(void) { return network_station_ready(); }
 
 esp_err_t wifi_manager_get_ap_credentials(char *ssid, size_t ssid_size,
                                           char *password, size_t password_size) {

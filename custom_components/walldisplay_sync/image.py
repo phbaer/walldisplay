@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from io import BytesIO
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 import json
 import re
 
@@ -36,9 +36,17 @@ def _host(value: str) -> str | None:
         ip = ip_address(value)
     except ValueError:
         return None
-    if not ip.is_private or ip.is_loopback or ip.is_unspecified or ip.is_multicast:
+    if ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_link_local:
         return None
-    return f"[{ip}]" if ip.version == 6 else str(ip)
+    if ip.version == 6:
+        if ip.scope_id is not None:
+            return None
+        # A link-local zone belongs to the HA host, not the panel. Accept only
+        # ULA here; public destinations remain outside the proxy's LAN policy.
+        return f"[{ip}]" if ip in ip_network("fc00::/7") else None
+    if not ip.is_private:
+        return None
+    return str(ip)
 
 
 async def async_setup_entry(hass, entry, async_add_entities) -> None:
@@ -56,7 +64,7 @@ class WallDisplayScreenshot(ImageEntity):
         super().__init__(hass)
         self._runtime = runtime
         self._token = token
-        self._host = None
+        self._hosts = ()
         self._name = None
         self._image = None
         self._online = False
@@ -91,10 +99,11 @@ class WallDisplayScreenshot(ImageEntity):
             except (ValueError, TypeError):
                 return
             if msg.topic.endswith("/state/device"):
-                host = _host(str(data.get("ip", "")))
-                if host != self._host:
+                hosts = tuple(dict.fromkeys(host for key in ("ip", "ipv6_global")
+                                            if (host := _host(str(data.get(key, "")))) is not None))
+                if hosts != self._hosts:
                     self._generation += 1
-                    self._host = host
+                    self._hosts = hosts
             else:
                 self._generation += 1
                 state = data.get("state", "unknown")
@@ -105,30 +114,37 @@ class WallDisplayScreenshot(ImageEntity):
                     "preview_error": "token_missing" if not self._token else None,
                 }
                 self.async_write_ha_state()
-        if self._generation != self._fetched_generation and self._online and self._host and self._token and isinstance(self._name, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,31}", self._name):
+        if self._generation != self._fetched_generation and self._online and self._hosts and self._token and isinstance(self._name, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,31}", self._name):
             await self._fetch(self._generation)
 
     async def _fetch(self, generation: int) -> None:
-        url = f"http://{self._host}:8080/screenshot.bmp?name={self._name}"
-        try:
-            async with async_get_clientsession(self.hass).get(
-                url, headers={"Authorization": f"Bearer {self._token}"},
-                timeout=ClientTimeout(total=30), allow_redirects=False,
-            ) as response:
-                if response.status != 200:
-                    raise ValueError(f"http_{response.status}")
-                data = bytearray()
-                async for chunk in response.content.iter_chunked(16384):
-                    data.extend(chunk)
-                    if len(data) > BMP_BYTES:
-                        raise ValueError("invalid_image")
-            png = await self.hass.async_add_executor_job(_png, bytes(data))
-        except (ClientError, asyncio.TimeoutError, ValueError, OSError) as error:
-            if generation != self._generation:
+        png = None
+        preview_error = "download_failed"
+        for host in self._hosts:
+            if generation != self._generation or not self._online:
                 return
-            # Never include request headers/token or an arbitrary response body in entity state.
-            self._attr_extra_state_attributes["preview_error"] = str(error) if isinstance(error, ValueError) and str(error).startswith("http_") else "download_failed"
-            self.async_write_ha_state()
+            url = f"http://{host}:8080/screenshot.bmp?name={self._name}"
+            try:
+                async with async_get_clientsession(self.hass).get(
+                    url, headers={"Authorization": f"Bearer {self._token}"},
+                    timeout=ClientTimeout(total=30), allow_redirects=False,
+                ) as response:
+                    if response.status != 200:
+                        raise ValueError(f"http_{response.status}")
+                    data = bytearray()
+                    async for chunk in response.content.iter_chunked(16384):
+                        data.extend(chunk)
+                        if len(data) > BMP_BYTES:
+                            raise ValueError("invalid_image")
+                png = await self.hass.async_add_executor_job(_png, bytes(data))
+                break
+            except (ClientError, asyncio.TimeoutError, ValueError, OSError) as error:
+                # Never include headers/token or arbitrary response content in state.
+                preview_error = str(error) if isinstance(error, ValueError) and str(error).startswith("http_") else "download_failed"
+        if png is None:
+            if generation == self._generation:
+                self._attr_extra_state_attributes["preview_error"] = preview_error
+                self.async_write_ha_state()
             return
         if generation != self._generation or not self._online:
             return

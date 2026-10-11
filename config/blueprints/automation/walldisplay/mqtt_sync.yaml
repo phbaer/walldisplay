@@ -1,9 +1,11 @@
 blueprint:
   # Generated from pyproject.toml by tools/sync_project_version.py.
-  name: WallDisplay MQTT Sync v1.2.0 (Contract 11)
+  name: WallDisplay MQTT Sync v1.3.0 (Contract 12)
   description: >-
     Publish the panel hostname, clock, weather, rich media controls and favourites, configurable weather/media/buttons/About pages, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
+    IPv4 and IPv6 panels use the same topics and settings; authenticated screenshot previews
+    support private IPv4 or IPv6 ULA through the passive integration companion.
     Firmware discovery exposes all canonical MQTT controls and diagnostic payloads on the panel device;
     this automation restores its configured inputs on synchronization after manual device edits.
   homeassistant:
@@ -562,8 +564,8 @@ variables:
   grid5_state_entity: !input grid5_state_entity
   grid6_label: !input grid6_label
   grid6_state_entity: !input grid6_state_entity
-  blueprint_version: "1.2.0"
-  panel_contract_version: "11"
+  blueprint_version: "1.3.0"
+  panel_contract_version: "12"
   panel_topic: !input panel_topic
   panel_name: !input panel_name
   time_format: !input time_format

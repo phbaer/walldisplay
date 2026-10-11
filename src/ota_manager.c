@@ -1,4 +1,5 @@
 #include "walldisplay/ota_manager.h"
+#include "walldisplay/network_client.h"
 #include "walldisplay/display_board.h"
 #include "walldisplay/media_artwork.h"
 #include "walldisplay/mqtt_app.h"
@@ -110,17 +111,10 @@ static esp_err_t read_manifest(const char *url, char *buffer, size_t buffer_len)
         .url = url,
         .timeout_ms = 15000,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        /* Release hosts may publish an unusable link-local AAAA record.  OTA
-         * URLs are HTTPS and retain hostname verification, while connecting
-         * through IPv4 avoids selecting that unroutable address. */
-        .addr_type = HTTP_ADDR_TYPE_INET,
     };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-
-    esp_err_t err = esp_http_client_open(client, 0);
+    esp_http_client_handle_t client = NULL;
+    esp_err_t err = network_http_open(&config, NULL, &client);
+    if (err != ESP_OK) return err;
     if (err == ESP_OK) {
         const int content_length = esp_http_client_fetch_headers(client);
         const int status = esp_http_client_get_status_code(client);
@@ -207,19 +201,13 @@ static __attribute__((noinline)) esp_err_t download_firmware(const ota_manifest_
             .url = manifest->firmware_url,
             .timeout_ms = 30000,
             .crt_bundle_attach = esp_crt_bundle_attach,
-            /* Release hosts may publish an unusable link-local AAAA record. */
-            .addr_type = HTTP_ADDR_TYPE_INET,
         };
-        esp_http_client_handle_t client = esp_http_client_init(&config);
-        if (client == NULL) {
-            err = ESP_ERR_NO_MEM;
-            break;
-        }
+        esp_http_client_handle_t client = NULL;
         char range[64];
         snprintf(range, sizeof(range), "bytes=%u-%u", (unsigned) total,
                  (unsigned) (total + chunk_size - 1));
-        err = esp_http_client_set_header(client, "Range", range);
-        if (err == ESP_OK) err = esp_http_client_open(client, 0);
+        err = network_http_open(&config, range, &client);
+        if (err != ESP_OK) break;
         const int content_length = err == ESP_OK ? esp_http_client_fetch_headers(client) : -1;
         if (err == ESP_OK && (esp_http_client_get_status_code(client) != 206 ||
                               content_length != (int) chunk_size)) {

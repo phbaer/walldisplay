@@ -1,6 +1,7 @@
 #include "walldisplay/mqtt_app.h"
 
 #include "walldisplay/app_config.h"
+#include "walldisplay/network_client.h"
 #include "walldisplay/mqtt_receive.h"
 #include "esp_crt_bundle.h"
 #include "esp_check.h"
@@ -28,6 +29,7 @@ typedef struct { char topic[MQTT_TX_TOPIC_MAX_LEN]; char payload[MQTT_TX_PAYLOAD
 static mqtt_receive_t s_rx;
 static char s_availability_topic[APP_TOPIC_MAX_LEN + 16];
 static QueueHandle_t s_tx_queue;
+static bool s_alternate_family;
 
 static void mqtt_tx_task(void *arg) {
     (void)arg;
@@ -43,6 +45,14 @@ static void mqtt_tx_task(void *arg) {
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
     esp_mqtt_event_handle_t event = event_data;
     switch ((esp_mqtt_event_id_t) event_id) {
+        case MQTT_EVENT_BEFORE_CONNECT:
+            network_mqtt_before_connect(event->client, app_config_get()->mqtt_uri, s_alternate_family);
+            break;
+        case MQTT_EVENT_ERROR:
+            if (event->error_handle && event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+                s_alternate_family = !s_alternate_family;
+            }
+            break;
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT connected");
             if (s_connected_cb != NULL) {

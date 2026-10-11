@@ -15,10 +15,10 @@
  * Tagged release builds may override this at compile time with their exact
  * release tag, while the checked-in development version remains canonical. */
 #ifndef APP_FW_VERSION
-#define APP_FW_VERSION "1.2.0"
+#define APP_FW_VERSION "1.3.0"
 #endif
 /* Increment whenever MQTT topics, payloads, or semantics change. */
-#define APP_CONTRACT_VERSION "11"
+#define APP_CONTRACT_VERSION "12"
 
 #define APP_WIFI_MAX_SSID_LEN 32
 #define APP_WIFI_MAX_PASSWORD_LEN 64
