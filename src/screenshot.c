@@ -35,7 +35,8 @@
 
 static const char *TAG = "screenshot";
 
-static const display_board_handle_t *s_board;
+/* app_main owns a temporary board structure; retain only the LVGL-owned handle. */
+static lv_display_t *s_display;
 static screenshot_status_cb_t s_status_callback;
 static QueueHandle_t s_capture_queue;
 static httpd_handle_t s_http_server;
@@ -195,7 +196,7 @@ static esp_err_t capture_frame(const char *name, const char **stage) {
     }
 
     *stage = "framebuffer";
-    lv_draw_buf_t *active = s_board != NULL ? lv_display_get_buf_active(s_board->display) : NULL;
+    lv_draw_buf_t *active = s_display != NULL ? lv_display_get_buf_active(s_display) : NULL;
     if (active != NULL && active->data != NULL && active->header.w == BOARD_LCD_WIDTH &&
         active->header.h == BOARD_LCD_HEIGHT && active->header.stride >= BOARD_LCD_WIDTH * SCREENSHOT_BYTES_PER_PIXEL) {
         for (size_t y = 0; y < BOARD_LCD_HEIGHT; ++y) {
@@ -335,7 +336,7 @@ esp_err_t screenshot_init(const display_board_handle_t *board, screenshot_status
         }
         closedir(directory);
     }
-    s_board = board;
+    s_display = board->display;
     s_status_callback = status_callback;
     s_capture_queue = xQueueCreate(1, sizeof(screenshot_request_t));
     ESP_RETURN_ON_FALSE(s_capture_queue != NULL, ESP_ERR_NO_MEM, TAG, "Screenshot queue allocation failed");
