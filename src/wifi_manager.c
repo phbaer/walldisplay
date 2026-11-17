@@ -11,6 +11,7 @@
 #include "esp_mac.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "esp_random.h"
 #include "esp_crt_bundle.h"
 #include "mqtt_client.h"
 #include "freertos/FreeRTOS.h"
@@ -51,6 +52,9 @@ static wifi_config_t s_saved_station_config;
 static bool s_saved_station_config_valid;
 
 #define AP_IDLE_TIMEOUT_MS (15U * 60U * 1000U)
+/* Three groups of four symbols; see ap_password_generate(). */
+#define AP_PASSWORD_LEN 14
+static char s_ap_password[AP_PASSWORD_LEN + 1];
 
 static void ap_timeout_task(void *arg) {
     (void)arg;
@@ -134,6 +138,27 @@ static void dns_stop(void) {
     if (s_dns_task != NULL) ESP_LOGW(TAG, "Setup DNS task did not stop in time");
 }
 
+/* The setup AP password is the only access control of the setup portal, so it
+ * must not be derivable from anything the panel broadcasts (its SSID and BSSID
+ * expose the MAC address). It is drawn from the hardware RNG once per boot and
+ * shown only on the panel display and the serial console. Twelve symbols from
+ * a 31-character alphabet without look-alikes give about 59 bits. */
+static void ap_password_generate(void) {
+    static const char alphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
+    const unsigned symbols = sizeof(alphabet) - 1;
+    if (s_ap_password[0] != '\0') return;
+    size_t out = 0;
+    while (out < AP_PASSWORD_LEN) {
+        if (out == 4 || out == 9) { s_ap_password[out++] = '-'; continue; }
+        uint8_t value;
+        esp_fill_random(&value, sizeof(value));
+        /* Reject the tail of the byte range so every symbol is equally likely. */
+        if (value >= 256U - 256U % symbols) continue;
+        s_ap_password[out++] = alphabet[value % symbols];
+    }
+    s_ap_password[out] = '\0';
+}
+
 static void html_escape(const char *input, char *output, size_t size) {
     size_t out = 0;
     for (size_t i = 0; input != NULL && input[i] != '\0' && out + 6 < size; ++i) {
@@ -182,6 +207,53 @@ static void form_url_decode(char *value) {
         }
     }
     *write = '\0';
+}
+
+/* Read one form field. The encoded value is extracted into scratch, which is
+ * as large as the request body and therefore cannot truncate, and is decoded
+ * before its length is checked against the destination. A value that does not
+ * fit is reported through too_long instead of being replaced by a stored one. */
+static bool form_field(const char *body, const char *key, char *value, size_t value_size,
+                       char *scratch, size_t scratch_size, bool *too_long) {
+    value[0] = '\0';
+    if (httpd_query_key_value(body, key, scratch, scratch_size) != ESP_OK) return false;
+    form_url_decode(scratch);
+    if (strlcpy(value, scratch, value_size) >= value_size) {
+        value[0] = '\0';
+        *too_long = true;
+    }
+    return true;
+}
+
+/* The portal listens on every interface, but only clients of the setup AP may
+ * use it: the AP password shown on the display is its access control. Requests
+ * that arrived through the station interface are refused. */
+static bool portal_request_from_ap(httpd_req_t *req) {
+    esp_netif_ip_info_t ap = {0};
+    if (s_ap_netif == NULL || esp_netif_get_ip_info(s_ap_netif, &ap) != ESP_OK || ap.ip.addr == 0) return false;
+    struct sockaddr_storage local = {0};
+    socklen_t local_len = sizeof(local);
+    if (getsockname(httpd_req_to_sockfd(req), (struct sockaddr *)&local, &local_len) != 0) return false;
+    uint32_t address = 0;
+    if (local.ss_family == AF_INET) {
+        address = ((const struct sockaddr_in *)&local)->sin_addr.s_addr;
+#if CONFIG_LWIP_IPV6
+    } else if (local.ss_family == AF_INET6) {
+        /* The server socket is dual-stack; IPv4 peers appear IPv4-mapped. */
+        static const uint8_t mapped_prefix[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff};
+        const uint8_t *bytes = ((const struct sockaddr_in6 *)&local)->sin6_addr.s6_addr;
+        if (memcmp(bytes, mapped_prefix, sizeof(mapped_prefix)) != 0) return false;
+        memcpy(&address, bytes + sizeof(mapped_prefix), sizeof(address));
+#endif
+    } else {
+        return false;
+    }
+    return address == ap.ip.addr;
+}
+
+static esp_err_t portal_forbidden(httpd_req_t *req) {
+    httpd_resp_set_status(req, "403 Forbidden");
+    return httpd_resp_send(req, "The setup portal is available only through the setup access point", HTTPD_RESP_USE_STRLEN);
 }
 
 /* ESP32-S3 accepts quarter-dBm units; 78 is the 19.5 dBm driver maximum.
@@ -466,6 +538,7 @@ esp_err_t wifi_manager_set_display_name(const char *display_name) {
 }
 
 static esp_err_t portal_get(httpd_req_t *req) {
+    if (!portal_request_from_ap(req)) return portal_forbidden(req);
     portal_activity();
     const app_config_t *config = app_config_get();
     char hostname[33] = "walldisplay";
@@ -475,7 +548,8 @@ static esp_err_t portal_get(httpd_req_t *req) {
     char disc_pref[APP_TOPIC_MAX_LEN * 2 + 1], base_topic[APP_TOPIC_MAX_LEN * 2 + 1];
     char topic_prefix[APP_TOPIC_MAX_LEN + 1];
     char generated_topic[APP_TOPIC_MAX_LEN + 1], generated_topic_html[APP_TOPIC_MAX_LEN * 2 + 1];
-    char *ca_certificate = malloc(APP_MQTT_CA_MAX_LEN * 2 + 1);
+    const size_t ca_certificate_size = APP_MQTT_CA_MAX_LEN * 2 + 1;
+    char *ca_certificate = malloc(ca_certificate_size);
     if (ca_certificate == NULL) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
     html_escape(config->display_name, name, sizeof(name)); html_escape(config->wifi_ssid, ssid, sizeof(ssid));
     html_escape(config->mqtt_uri, mqtt_uri, sizeof(mqtt_uri)); html_escape(config->mqtt_username, mqtt_user, sizeof(mqtt_user));
@@ -486,13 +560,13 @@ static esp_err_t portal_get(httpd_req_t *req) {
         strlcpy(generated_topic, config->base_topic, sizeof(generated_topic));
     html_escape(generated_topic, generated_topic_html, sizeof(generated_topic_html));
     html_escape(config->discovery_prefix, disc_pref, sizeof(disc_pref)); html_escape(topic_prefix, base_topic, sizeof(base_topic));
-    html_escape(config->mqtt_ca_certificate, ca_certificate, sizeof(ca_certificate));
+    html_escape(config->mqtt_ca_certificate, ca_certificate, ca_certificate_size);
     char *body = malloc(16384);
     if (body == NULL) {
         free(ca_certificate);
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
     }
-    snprintf(body, 16384,
+    const int body_length = snprintf(body, 16384,
         "<!doctype html><html><head><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>WallDisplay setup</title>"
         "<style>*,*:before,*:after{box-sizing:border-box}html,body{overflow-x:hidden}body{font:16px system-ui,sans-serif;background:#f4f6f8;color:#18212b;margin:0;padding:clamp(10px,4vw,24px)}main{width:100%%;max-width:620px;min-width:0;margin:auto;background:white;padding:clamp(16px,4vw,28px);border-radius:14px;box-shadow:0 4px 18px #0001}h1{margin-top:0;font-size:clamp(1.35rem,5vw,1.8rem)}h2{font-size:1.05rem;border-bottom:1px solid #dde2e7;padding-bottom:8px;margin-top:24px}label{display:block;margin:14px 0 5px;font-weight:600}input,textarea{box-sizing:border-box;width:100%%;min-width:0;padding:10px;border:1px solid #b7c1ca;border-radius:7px;font:inherit}textarea{resize:vertical;max-width:100%%}button{padding:10px 15px;border:0;border-radius:7px;background:#1769aa;color:white;font:inherit;cursor:pointer}button.secondary{background:#e4e9ee;color:#18212b}.row{display:flex;gap:8px;align-items:end;flex-wrap:wrap;min-width:0}.row input{min-width:0;flex:1 1 200px}.row button{white-space:nowrap}.hint{color:#5f6c78;font-size:.9rem}.network{display:flex;justify-content:space-between;gap:8px;padding:9px;border-bottom:1px solid #edf0f2;cursor:pointer;overflow-wrap:anywhere}.network:hover{background:#f0f6fb}.status{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 12px;padding:12px;border-radius:7px;background:#eef5fa;margin:12px 0;overflow-wrap:anywhere}.status b{font-weight:700}.status code{overflow-wrap:anywhere}.error,.success{min-height:1.3em}.error{color:#b42318}.success{color:#167447}@media(max-width:420px){main{border-radius:10px}.row button{flex:1 1 auto}}</style></head><body><main>"
         "<h1>WallDisplay setup</h1><div class=status><b>Display name</b><span>%s</span><b>Hostname</b><code id=hostname>%s</code><b>MQTT topic</b><code id=mqtt_topic>%s</code></div>"
@@ -505,15 +579,21 @@ static esp_err_t portal_get(httpd_req_t *req) {
         "<p id=error class=error role=status aria-live=polite></p><div class=row><button type=submit name=action value=test class=secondary>Test connections</button><button type=submit name=action value=save>Save and reboot</button></div></form><form method=post action=/api/reset onsubmit=\"return confirm('Erase saved settings and restart setup?')\"><button class=secondary type=submit>Erase settings and restart setup</button></form><p class=hint>Test connections checks Wi-Fi and MQTT without saving and reports the result here. Saving validates again and restarts the panel.</p></main>"
         "<script>function toggle(id,b){let e=document.getElementById(id);e.type=e.type==='password'?'text':'password';b.textContent=e.type==='password'?'Show':'Hide'}function hostname(v){return v.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,32)}function updateTopic(){let h=hostname(document.getElementById('name').value),p=document.getElementById('base_topic').value.replace(/\\/+$/,'');document.getElementById('hostname').textContent=h||'(invalid)';document.getElementById('mqtt_topic').textContent=h&&p?p+'/'+h:'(invalid)'}function generateToken(){let a=new Uint8Array(48);crypto.getRandomValues(a);let c='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',t='';a.forEach(x=>t+=c[x%%c.length]);let e=document.getElementById('screenshot_token');e.value=t;e.type='text'}async function scan(){let n=document.getElementById('networks');n.textContent='Scanning...';try{let r=await fetch('/api/wifi/scan',{cache:'no-store'});if(!r.ok)throw Error();let a=await r.json();n.innerHTML=a.length?'':'No networks found.';a.forEach(x=>{let d=document.createElement('div');d.className='network';d.innerHTML='<span></span><span></span>';d.firstChild.textContent=x.ssid||'(hidden)';d.lastChild.textContent=x.rssi+' dBm - '+x.security;d.onclick=()=>{document.getElementById('ssid').value=x.ssid};n.appendChild(d)})}catch(e){n.textContent='Scan failed. Enter the network name manually.'}}let form=document.querySelector('form');form.addEventListener('submit',async e=>{let status=document.getElementById('error');if(e.submitter&&e.submitter.value==='test'){e.preventDefault();status.className='error';status.textContent='Testing connections...';let params=new URLSearchParams(new FormData(form));params.set('action','test');try{let r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:params});status.textContent=await r.text();status.className=r.ok?'success':'error'}catch(err){status.textContent='Connection test request failed';status.className='error'}}else{status.className='error';status.textContent='Saving...'}});document.getElementById('name').addEventListener('input',updateTopic);document.getElementById('base_topic').addEventListener('input',updateTopic);updateTopic()</script></body></html>",
         name, hostname, generated_topic_html, ssid, name, mqtt_uri, mqtt_user, disc_pref, base_topic, config->mqtt_require_tls ? "checked" : "", ca_certificate);
+    if (body_length < 0 || body_length >= 16384) {
+        free(body);
+        free(ca_certificate);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Setup page too large");
+    }
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store, no-cache, must-revalidate");
-    esp_err_t result = httpd_resp_send(req, body, HTTPD_RESP_USE_STRLEN);
+    esp_err_t result = httpd_resp_send(req, body, body_length);
     free(body);
     free(ca_certificate);
     return result;
 }
 
 static esp_err_t portal_scan(httpd_req_t *req) {
+    if (!portal_request_from_ap(req)) return portal_forbidden(req);
     portal_activity();
     if (s_scan_mutex == NULL || xSemaphoreTake(s_scan_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Wi-Fi scan busy");
@@ -562,6 +642,7 @@ static esp_err_t portal_scan(httpd_req_t *req) {
 }
 
 static esp_err_t portal_status(httpd_req_t *req) {
+    if (!portal_request_from_ap(req)) return portal_forbidden(req);
     portal_activity();
     const app_config_t *config = app_config_get();
     char hostname[33] = "walldisplay";
@@ -575,6 +656,7 @@ static esp_err_t portal_status(httpd_req_t *req) {
 }
 
 static esp_err_t portal_redirect(httpd_req_t *req) {
+    if (!portal_request_from_ap(req)) return portal_forbidden(req);
     portal_activity();
     httpd_resp_set_status(req, "302 Found");
     httpd_resp_set_hdr(req, "Location", "/");
@@ -582,6 +664,7 @@ static esp_err_t portal_redirect(httpd_req_t *req) {
 }
 
 static esp_err_t portal_post(httpd_req_t *req) {
+    if (!portal_request_from_ap(req)) return portal_forbidden(req);
     portal_activity();
     const int64_t now = esp_timer_get_time();
     if (now - s_portal_window_us > 60LL * 1000LL * 1000LL) { s_portal_window_us = now; s_portal_attempts = 0; }
@@ -593,12 +676,18 @@ static esp_err_t portal_post(httpd_req_t *req) {
         return httpd_resp_send(req, "Form encoding required", HTTPD_RESP_USE_STRLEN);
     }
     if (req->content_len <= 0 || req->content_len >= 12288) return httpd_resp_send_err(req, HTTPD_413_CONTENT_TOO_LARGE, "Request too large");
-    char *body = calloc(1, (size_t)req->content_len + 1);
-    if (!body) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+    const size_t body_size = (size_t)req->content_len + 1;
+    char *body = calloc(1, body_size);
+    char *scratch = malloc(body_size);
+    if (!body || !scratch) {
+        free(body);
+        free(scratch);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+    }
     int received = 0;
     while (received < req->content_len) {
         int n = httpd_req_recv(req, body + received, req->content_len - received);
-        if (n <= 0) { free(body); return ESP_FAIL; }
+        if (n <= 0) { free(body); free(scratch); return ESP_FAIL; }
         received += n;
     }
     body[received] = '\0';
@@ -610,44 +699,49 @@ static esp_err_t portal_post(httpd_req_t *req) {
     char action[16] = {0};
     char hostname[33];
     const app_config_t *current = app_config_get();
-    bool has_ca = httpd_query_key_value(body, "ca_certificate", ca_certificate, sizeof(ca_certificate)) == ESP_OK;
-    if (has_ca) form_url_decode(ca_certificate);
+    bool too_long = false;
+#define PORTAL_FIELD(key, buffer) form_field(body, key, buffer, sizeof(buffer), scratch, body_size, &too_long)
+    const bool has_ca = PORTAL_FIELD("ca_certificate", ca_certificate);
+    const bool has_password = PORTAL_FIELD("password", password);
+    const bool has_mqtt_password = PORTAL_FIELD("mqtt_password", mqtt_password);
+    const bool has_ssid = PORTAL_FIELD("ssid", ssid);
+    const bool has_name = PORTAL_FIELD("name", name);
+    const bool has_mqtt_uri = PORTAL_FIELD("mqtt_uri", mqtt_uri);
+    const bool has_mqtt_user = PORTAL_FIELD("mqtt_user", mqtt_user);
+    const bool has_disc_pref = PORTAL_FIELD("disc_pref", disc_pref);
+    const bool has_base_topic = PORTAL_FIELD("base_topic", base_topic);
+    const bool has_screenshot_token = PORTAL_FIELD("screenshot_token", screenshot_token);
+    const bool require_tls = PORTAL_FIELD("mqtt_tls", mqtt_tls);
+    const bool test_only = PORTAL_FIELD("action", action) && strcmp(action, "test") == 0;
+#undef PORTAL_FIELD
+    free(scratch);
+    free(body);
+    if (too_long) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "A submitted value is too long");
+    if (!has_ssid || !has_name) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid configuration");
     if (!has_ca) strlcpy(ca_certificate, current->mqtt_ca_certificate, sizeof(ca_certificate));
-    const bool has_password = httpd_query_key_value(body, "password", password, sizeof(password)) == ESP_OK;
-    if (has_password) form_url_decode(password);
-    const bool has_mqtt_password = httpd_query_key_value(body, "mqtt_password", mqtt_password, sizeof(mqtt_password)) == ESP_OK;
-    if (has_mqtt_password) form_url_decode(mqtt_password);
-    const bool has_ssid = httpd_query_key_value(body, "ssid", ssid, sizeof(ssid)) == ESP_OK;
-    if (has_ssid) form_url_decode(ssid);
-    const bool has_name = httpd_query_key_value(body, "name", name, sizeof(name)) == ESP_OK;
-    if (has_name) form_url_decode(name);
-    if (!has_ssid || !has_name) {
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid configuration");
-    }
-    if (!has_password && strcmp(ssid, current->wifi_ssid) == 0) strlcpy(password, current->wifi_password, sizeof(password));
-    const bool has_mqtt_uri = httpd_query_key_value(body, "mqtt_uri", mqtt_uri, sizeof(mqtt_uri)) == ESP_OK;
-    if (has_mqtt_uri) form_url_decode(mqtt_uri); else strlcpy(mqtt_uri, current->mqtt_uri, sizeof(mqtt_uri));
-    const bool has_mqtt_user = httpd_query_key_value(body, "mqtt_user", mqtt_user, sizeof(mqtt_user)) == ESP_OK;
-    if (has_mqtt_user) form_url_decode(mqtt_user); else strlcpy(mqtt_user, current->mqtt_username, sizeof(mqtt_user));
-    if (!has_mqtt_password && strcmp(mqtt_uri, current->mqtt_uri) == 0) strlcpy(mqtt_password, current->mqtt_password, sizeof(mqtt_password));
-    ESP_LOGW(TAG, "Portal MQTT URI received: '%s'", mqtt_uri[0] != '\0' ? mqtt_uri : "(empty)");
-    const bool has_disc_pref = httpd_query_key_value(body, "disc_pref", disc_pref, sizeof(disc_pref)) == ESP_OK;
-    if (has_disc_pref) form_url_decode(disc_pref); else strlcpy(disc_pref, current->discovery_prefix, sizeof(disc_pref));
-    const bool has_base_topic = httpd_query_key_value(body, "base_topic", base_topic, sizeof(base_topic)) == ESP_OK;
-    if (has_base_topic) form_url_decode(base_topic); else strlcpy(base_topic, current->base_topic, sizeof(base_topic));
-    const bool has_screenshot_token = httpd_query_key_value(body, "screenshot_token", screenshot_token, sizeof(screenshot_token)) == ESP_OK;
-    if (has_screenshot_token) form_url_decode(screenshot_token);
+    if (!has_mqtt_uri) strlcpy(mqtt_uri, current->mqtt_uri, sizeof(mqtt_uri));
+    if (!has_mqtt_user) strlcpy(mqtt_user, current->mqtt_username, sizeof(mqtt_user));
+    if (!has_disc_pref) strlcpy(disc_pref, current->discovery_prefix, sizeof(disc_pref));
+    if (!has_base_topic) strlcpy(base_topic, current->base_topic, sizeof(base_topic));
     if (!has_screenshot_token || screenshot_token[0] == '\0')
         strlcpy(screenshot_token, current->screenshot_token, sizeof(screenshot_token));
-    const bool require_tls = httpd_query_key_value(body, "mqtt_tls", mqtt_tls, sizeof(mqtt_tls)) == ESP_OK;
-    const bool test_only = httpd_query_key_value(body, "action", action, sizeof(action)) == ESP_OK &&
-                           strcmp(action, "test") == 0;
+    /* A stored secret is reused for an omitted field only when everything that
+     * decides who receives it is unchanged. Otherwise a portal client could
+     * keep the broker URI, name its own Wi-Fi network or CA certificate, and
+     * have the panel present the stored MQTT password to a broker it controls. */
+    const bool same_wifi = strcmp(ssid, current->wifi_ssid) == 0;
+    const bool same_broker_trust = same_wifi && strcmp(mqtt_uri, current->mqtt_uri) == 0 &&
+                                   strcmp(mqtt_user, current->mqtt_username) == 0 &&
+                                   strcmp(ca_certificate, current->mqtt_ca_certificate) == 0 &&
+                                   (require_tls || !current->mqtt_require_tls);
+    if (!has_password && same_wifi) strlcpy(password, current->wifi_password, sizeof(password));
+    if (!has_mqtt_password && same_broker_trust) strlcpy(mqtt_password, current->mqtt_password, sizeof(mqtt_password));
+    /* The URI may embed credentials; never log its content. */
+    ESP_LOGI(TAG, "Portal MQTT URI %s", mqtt_uri[0] != '\0' ? "received" : "empty");
     ESP_LOGI(TAG, "Portal request action: %s", test_only ? "test" : "save");
     char derived_topic[APP_TOPIC_MAX_LEN + 1];
-    if (app_config_derive_base_topic(base_topic, name, derived_topic, sizeof(derived_topic)) != ESP_OK) {
-        free(body);
+    if (app_config_derive_base_topic(base_topic, name, derived_topic, sizeof(derived_topic)) != ESP_OK)
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid MQTT topic prefix");
-    }
     const esp_err_t wifi_test_err = wifi_manager_test_station(ssid, password);
     const bool wifi_ok = wifi_test_err == ESP_OK;
     const esp_err_t mqtt_test_err = wifi_ok ? wifi_manager_test_mqtt(mqtt_uri, mqtt_user, mqtt_password,
@@ -666,7 +760,6 @@ static esp_err_t portal_post(httpd_req_t *req) {
              hostname_err == ESP_OK ? "ok" : "failed", esp_err_to_name(config_err));
     if (!wifi_ok || !mqtt_ok || hostname_err != ESP_OK || config_err != ESP_OK) {
         if (wifi_ok && (test_only || !mqtt_ok || config_err != ESP_OK)) wifi_manager_restore_saved_station();
-        free(body);
         const char *message = !wifi_ok ? "Wi-Fi connection failed; previous configuration was kept" :
                               !mqtt_ok ? "MQTT connection failed; previous configuration was kept" :
                               "Could not save configuration; previous configuration was kept";
@@ -674,11 +767,9 @@ static esp_err_t portal_post(httpd_req_t *req) {
     }
     if (test_only) {
         wifi_manager_restore_saved_station();
-        free(body);
         httpd_resp_set_type(req, "text/plain");
         return httpd_resp_send(req, "Wi-Fi and MQTT connections succeeded; nothing was saved.", HTTPD_RESP_USE_STRLEN);
     }
-    free(body);
     (void) wifi_manager_set_hostname(hostname);
     httpd_resp_set_type(req, "text/plain");
     esp_err_t result = httpd_resp_send(req, "Saved. Rebooting to connect.", HTTPD_RESP_USE_STRLEN);
@@ -688,6 +779,7 @@ static esp_err_t portal_post(httpd_req_t *req) {
 }
 
 static esp_err_t portal_reset(httpd_req_t *req) {
+    if (!portal_request_from_ap(req)) return portal_forbidden(req);
     portal_activity();
     if (req->content_len != 0) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Unexpected request body");
     const esp_err_t reset_err = app_config_reset_runtime();
@@ -724,7 +816,8 @@ esp_err_t wifi_manager_start_ap(void) {
     if (err != ESP_OK) { xSemaphoreGive(s_ap_mutex); return err; }
     wifi_config_t config = {0};
     snprintf((char *) config.ap.ssid, sizeof(config.ap.ssid), "WallDisplay-%02X%02X", mac[4], mac[5]);
-    snprintf((char *) config.ap.password, sizeof(config.ap.password), "wd-%02x%02x%02x%02x", mac[2], mac[3], mac[4], mac[5]);
+    ap_password_generate();
+    strlcpy((char *) config.ap.password, s_ap_password, sizeof(config.ap.password));
     config.ap.ssid_len = strlen((char *) config.ap.ssid);
     config.ap.channel = 1; config.ap.max_connection = 2; config.ap.authmode = WIFI_AUTH_WPA2_PSK;
     err = esp_wifi_set_mode(WIFI_MODE_APSTA);
@@ -795,12 +888,13 @@ bool wifi_manager_station_ready(void) { return network_station_ready(); }
 
 esp_err_t wifi_manager_get_ap_credentials(char *ssid, size_t ssid_size,
                                           char *password, size_t password_size) {
-    if (!ssid || !password || ssid_size < 14 || password_size < 16) return ESP_ERR_INVALID_ARG;
+    if (!ssid || !password || ssid_size < 14 || password_size <= AP_PASSWORD_LEN) return ESP_ERR_INVALID_ARG;
+    if (s_ap_password[0] == '\0') return ESP_ERR_INVALID_STATE;
     uint8_t mac[6] = {0};
     esp_err_t err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
     if (err != ESP_OK) return err;
     int n = snprintf(ssid, ssid_size, "WallDisplay-%02X%02X", mac[4], mac[5]);
     if (n < 0 || (size_t)n >= ssid_size) return ESP_ERR_INVALID_SIZE;
-    n = snprintf(password, password_size, "wd-%02x%02x%02x%02x", mac[2], mac[3], mac[4], mac[5]);
-    return n < 0 || (size_t)n >= password_size ? ESP_ERR_INVALID_SIZE : ESP_OK;
+    strlcpy(password, s_ap_password, password_size);
+    return ESP_OK;
 }
