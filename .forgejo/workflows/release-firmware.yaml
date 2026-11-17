@@ -22,7 +22,7 @@ jobs:
     if: ${{ !((forgejo.event_name == 'push' && startsWith(forgejo.ref, 'refs/tags/v')) || (forgejo.event_name == 'workflow_dispatch' && inputs.release_tag != '')) }}
     runs-on: node
     container:
-      image: espressif/idf:v6.0.3
+      image: espressif/idf:v6.1.1
     defaults:
       run:
         shell: bash
@@ -71,7 +71,7 @@ jobs:
       group: firmware-release-${{ inputs.release_tag || forgejo.ref_name }}
       cancel-in-progress: false
     container:
-      image: espressif/idf:v6.0.3
+      image: espressif/idf:v6.1.1
     defaults:
       run:
         shell: bash
