@@ -55,6 +55,9 @@ typedef struct {
 } app_config_t;
 
 esp_err_t app_config_init(void);
+/** Return the current configuration as an immutable snapshot. Safe on any
+ * task; do not keep the pointer beyond the current call, because a later
+ * update publishes a new snapshot and eventually reuses this one. */
 const app_config_t *app_config_get(void);
 esp_err_t app_config_set_base_topic(const char *base_topic);
 esp_err_t app_config_set_default_page(const char *page_name);
@@ -63,11 +66,6 @@ const char *app_config_default_page_name(app_default_page_t page);
 esp_err_t app_config_set_pages(const char *json);
 /** Store a human-readable label; the Wi-Fi hostname is derived separately. */
 esp_err_t app_config_set_display_name(const char *display_name);
-esp_err_t app_config_set_wifi_credentials(const char *ssid, const char *password);
-esp_err_t app_config_set_provisioning(const char *ssid, const char *password, const char *display_name);
-esp_err_t app_config_set_mqtt_credentials(const char *uri, const char *username, const char *password);
-esp_err_t app_config_set_network_options(const char *uri, const char *username, const char *password,
-                                         bool require_tls, const char *discovery_prefix, const char *base_topic);
 /**
  * Atomically persist the complete browser provisioning candidate.  Empty MQTT
  * values are accepted so Wi-Fi can be configured before MQTT is available.
