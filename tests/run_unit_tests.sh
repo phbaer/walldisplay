@@ -24,6 +24,9 @@ c++ -std=c++17 -Wall -Wextra -Werror -Iinclude \
 cc -std=c11 -Wall -Wextra -Werror -Iinclude \
     src/security_policy.c tests/test_security_policy.c -o "$test_binary"
 "$test_binary"
+cc -std=c11 -Wall -Wextra -Werror -Iinclude \
+    src/panel_topics.c tests/test_panel_topics.c -o "$test_binary"
+"$test_binary"
 cc -std=c11 -Wall -Wextra -Werror -Itests/stubs -Iinclude \
     -Imanaged_components/espressif__cjson/cJSON \
     tests/test_config_persistence.c src/page_manager.c \
