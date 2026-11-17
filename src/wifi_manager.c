@@ -20,6 +20,8 @@
 #include "lwip/sockets.h"
 #include "lwip/inet.h"
 
+#include <stdatomic.h>
+#include <stdint.h>
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -33,7 +35,7 @@ static httpd_handle_t s_portal;
 static bool s_ap_active;
 static bool s_provisioning_mode;
 static TaskHandle_t s_dns_task;
-static int s_dns_socket = -1;
+static atomic_bool s_dns_stop;
 static int s_portal_attempts;
 static int64_t s_portal_window_us;
 static SemaphoreHandle_t s_ap_mutex;
@@ -58,7 +60,9 @@ static void ap_timeout_task(void *arg) {
             wait_ticks = pdMS_TO_TICKS(AP_IDLE_TIMEOUT_MS);
             continue;
         }
-        if (s_ap_active) {
+        /* An unprovisioned panel has no other way to be configured, so its
+         * setup AP stays up. The timeout applies to an AP enabled on demand. */
+        if (s_ap_active && !s_provisioning_mode) {
             const int64_t idle_us = esp_timer_get_time() - s_ap_last_activity_us;
             if (idle_us >= (int64_t)AP_IDLE_TIMEOUT_MS * 1000LL) {
                 ESP_LOGI(TAG, "Setup AP idle timeout reached; stopping AP");
@@ -81,15 +85,19 @@ static void portal_activity(void) {
     }
 }
 
+#define DNS_RECEIVE_TIMEOUT_MS 500
+
 static void dns_task(void *arg) {
-    (void)arg;
+    /* The task owns its socket and closes it itself: closing a socket from
+     * another task while this one is blocked in recvfrom() is not safe in
+     * lwIP and could leave it reading a reused descriptor. */
+    const int dns_socket = (int)(intptr_t)arg;
     uint8_t packet[256];
-    struct sockaddr_in peer;
-    socklen_t peer_len = sizeof(peer);
-    while (s_dns_socket >= 0) {
-        int length = recvfrom(s_dns_socket, packet, sizeof(packet), 0, (struct sockaddr *)&peer, &peer_len);
+    while (!atomic_load(&s_dns_stop)) {
+        struct sockaddr_in peer;
+        socklen_t peer_len = sizeof(peer);
+        int length = recvfrom(dns_socket, packet, sizeof(packet), 0, (struct sockaddr *)&peer, &peer_len);
         if (length < 12 || length + 16 > (int)sizeof(packet)) continue;
-        const int question_end = length;
         packet[length++] = 0xc0; packet[length++] = 0x0c;
         packet[length++] = 0x00; packet[length++] = 0x01;
         packet[length++] = 0x00; packet[length++] = 0x01;
@@ -97,19 +105,33 @@ static void dns_task(void *arg) {
         packet[length++] = 0x00; packet[length++] = 0x04;
         packet[length++] = 192; packet[length++] = 168; packet[length++] = 4; packet[length++] = 1;
         packet[2] = 0x81; packet[3] = 0x80; packet[6] = 0; packet[7] = 1;
-        sendto(s_dns_socket, packet, length, 0, (struct sockaddr *)&peer, peer_len);
-        (void)question_end;
+        sendto(dns_socket, packet, length, 0, (struct sockaddr *)&peer, peer_len);
     }
+    close(dns_socket);
+    s_dns_task = NULL;
     vTaskDelete(NULL);
 }
 
 static void dns_start(void) {
     if (s_dns_task != NULL) return;
-    s_dns_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (s_dns_socket < 0) return;
+    const int dns_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (dns_socket < 0) return;
+    /* A bounded receive lets the task notice a stop request by itself. */
+    const struct timeval timeout = {.tv_sec = 0, .tv_usec = DNS_RECEIVE_TIMEOUT_MS * 1000};
     struct sockaddr_in address = {.sin_family = AF_INET, .sin_port = htons(53), .sin_addr.s_addr = htonl(INADDR_ANY)};
-    if (bind(s_dns_socket, (struct sockaddr *)&address, sizeof(address)) != 0) { close(s_dns_socket); s_dns_socket = -1; return; }
-    xTaskCreate(dns_task, "wd_dns", 3072, NULL, 4, &s_dns_task);
+    atomic_store(&s_dns_stop, false);
+    if (setsockopt(dns_socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0 ||
+        bind(dns_socket, (struct sockaddr *)&address, sizeof(address)) != 0 ||
+        xTaskCreate(dns_task, "wd_dns", 3072, (void *)(intptr_t)dns_socket, 4, &s_dns_task) != pdPASS) {
+        close(dns_socket);
+        s_dns_task = NULL;
+    }
+}
+
+static void dns_stop(void) {
+    atomic_store(&s_dns_stop, true);
+    for (int i = 0; i < 20 && s_dns_task != NULL; ++i) vTaskDelay(pdMS_TO_TICKS(DNS_RECEIVE_TIMEOUT_MS / 5));
+    if (s_dns_task != NULL) ESP_LOGW(TAG, "Setup DNS task did not stop in time");
 }
 
 static void html_escape(const char *input, char *output, size_t size) {
@@ -761,7 +783,7 @@ esp_err_t wifi_manager_stop_ap(void) {
         xTaskNotifyGive(s_ap_timeout_task);
     }
     if (s_portal != NULL) { httpd_stop(s_portal); s_portal = NULL; }
-    if (s_dns_socket >= 0) { close(s_dns_socket); s_dns_socket = -1; s_dns_task = NULL; }
+    dns_stop();
     s_ap_active = false;
     esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
     if (s_ap_mutex != NULL) xSemaphoreGive(s_ap_mutex);
