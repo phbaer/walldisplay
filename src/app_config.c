@@ -6,7 +6,10 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "walldisplay/app_config_defaults.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
+#include <stdatomic.h>
 #include <string.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -33,10 +36,56 @@ static const app_config_t s_default_config = {
     .screenshot_token = APPCFG_SCREENSHOT_TOKEN,
     .default_page = APP_DEFAULT_PAGE_WEATHER,
 };
-static app_config_t s_app_config;
-static char s_runtime_screenshot_token[APP_SCREENSHOT_TOKEN_MAX_LEN + 1];
+/* Readers on any task receive a pointer to an immutable snapshot. A writer
+ * copies the current snapshot into the next slot, changes the copy, and then
+ * publishes it, so a reader never observes a half-written string. A snapshot
+ * stays untouched until CONFIG_SNAPSHOTS - 1 later updates have been published;
+ * readers use the pointer only for the duration of one call, and updates are
+ * rare, user-initiated events. Writers are serialized by s_write_lock, which
+ * also keeps NVS and the published snapshot in the same order. */
+#define CONFIG_SNAPSHOTS 3
+typedef struct {
+    app_config_t config;
+    char screenshot_token[APP_SCREENSHOT_TOKEN_MAX_LEN + 1];
+} config_snapshot_t;
+static config_snapshot_t s_snapshots[CONFIG_SNAPSHOTS];
+static size_t s_snapshot_index;
+static _Atomic(const app_config_t *) s_current;
+static SemaphoreHandle_t s_write_lock;
+/* The CA certificate is too large to copy per snapshot. It changes only in a
+ * portal save or a factory reset, both of which reboot the panel. */
 static char s_runtime_mqtt_ca[APP_MQTT_CA_MAX_LEN + 1];
 static bool s_initialized;
+
+static void snapshot_set_token(config_snapshot_t *snapshot, const char *token) {
+    strlcpy(snapshot->screenshot_token, token, sizeof(snapshot->screenshot_token));
+    snapshot->config.screenshot_token = snapshot->screenshot_token;
+}
+
+/* Start an update from the published configuration. Call with the lock held. */
+static config_snapshot_t *config_begin_update(void) {
+    const config_snapshot_t *current = &s_snapshots[s_snapshot_index];
+    config_snapshot_t *next = &s_snapshots[(s_snapshot_index + 1) % CONFIG_SNAPSHOTS];
+    *next = *current;
+    if (current->config.screenshot_token == current->screenshot_token)
+        next->config.screenshot_token = next->screenshot_token;
+    return next;
+}
+
+static void config_publish(config_snapshot_t *next) {
+    s_snapshot_index = (size_t)(next - s_snapshots);
+    atomic_store(&s_current, &next->config);
+}
+
+static void config_reset_to_defaults(app_config_t *config) {
+    *config = s_default_config;
+    panel_layout_defaults(&config->layout);
+    (void) panel_layout_parse(APPCFG_DEFAULT_LAYOUT_JSON, &config->layout);
+    config->default_page = (app_default_page_t)config->layout.default_page;
+}
+
+static void config_lock(void) { xSemaphoreTake(s_write_lock, portMAX_DELAY); }
+static void config_unlock(void) { xSemaphoreGive(s_write_lock); }
 esp_err_t app_config_display_hostname(const char *display_name, char *hostname, size_t hostname_size);
 
 static void load_string_or_default(nvs_handle_t nvs_handle, const char *key, char *dest, size_t dest_size, const char *fallback) {
@@ -54,10 +103,17 @@ esp_err_t app_config_init(void) {
         return ESP_OK;
     }
 
-    s_app_config = s_default_config;
-    panel_layout_defaults(&s_app_config.layout);
-    if (!panel_layout_parse(APPCFG_DEFAULT_LAYOUT_JSON, &s_app_config.layout)) return ESP_ERR_INVALID_ARG;
-    s_app_config.default_page = (app_default_page_t)s_app_config.layout.default_page;
+    if (s_write_lock == NULL) {
+        s_write_lock = xSemaphoreCreateMutex();
+        if (s_write_lock == NULL) return ESP_ERR_NO_MEM;
+    }
+    /* Initialization runs before any other task reads the configuration. */
+    config_snapshot_t *snapshot = &s_snapshots[0];
+    app_config_t *config = &snapshot->config;
+    *config = s_default_config;
+    panel_layout_defaults(&config->layout);
+    if (!panel_layout_parse(APPCFG_DEFAULT_LAYOUT_JSON, &config->layout)) return ESP_ERR_INVALID_ARG;
+    config->default_page = (app_default_page_t)config->layout.default_page;
 
     esp_err_t ret = nvs_flash_init_partition(APP_CONFIG_PARTITION);
     if (ret == ESP_ERR_NOT_FOUND) {
@@ -71,18 +127,18 @@ esp_err_t app_config_init(void) {
         } else {
             ESP_RETURN_ON_ERROR(ret, TAG, "Failed to open appcfg namespace");
 
-            load_string_or_default(nvs_handle, "wifi_ssid", s_app_config.wifi_ssid, sizeof(s_app_config.wifi_ssid), s_default_config.wifi_ssid);
-            load_string_or_default(nvs_handle, "wifi_pass", s_app_config.wifi_password, sizeof(s_app_config.wifi_password), s_default_config.wifi_password);
-            load_string_or_default(nvs_handle, "mqtt_uri", s_app_config.mqtt_uri, sizeof(s_app_config.mqtt_uri), s_default_config.mqtt_uri);
-            load_string_or_default(nvs_handle, "mqtt_user", s_app_config.mqtt_username, sizeof(s_app_config.mqtt_username), s_default_config.mqtt_username);
-            load_string_or_default(nvs_handle, "mqtt_pass", s_app_config.mqtt_password, sizeof(s_app_config.mqtt_password), s_default_config.mqtt_password);
-            load_string_or_default(nvs_handle, "disc_pref", s_app_config.discovery_prefix, sizeof(s_app_config.discovery_prefix), s_default_config.discovery_prefix);
-            load_string_or_default(nvs_handle, "base_topic", s_app_config.base_topic, sizeof(s_app_config.base_topic), s_default_config.base_topic);
-            load_string_or_default(nvs_handle, "display_name", s_app_config.display_name, sizeof(s_app_config.display_name), s_default_config.display_name);
+            load_string_or_default(nvs_handle, "wifi_ssid", config->wifi_ssid, sizeof(config->wifi_ssid), s_default_config.wifi_ssid);
+            load_string_or_default(nvs_handle, "wifi_pass", config->wifi_password, sizeof(config->wifi_password), s_default_config.wifi_password);
+            load_string_or_default(nvs_handle, "mqtt_uri", config->mqtt_uri, sizeof(config->mqtt_uri), s_default_config.mqtt_uri);
+            load_string_or_default(nvs_handle, "mqtt_user", config->mqtt_username, sizeof(config->mqtt_username), s_default_config.mqtt_username);
+            load_string_or_default(nvs_handle, "mqtt_pass", config->mqtt_password, sizeof(config->mqtt_password), s_default_config.mqtt_password);
+            load_string_or_default(nvs_handle, "disc_pref", config->discovery_prefix, sizeof(config->discovery_prefix), s_default_config.discovery_prefix);
+            load_string_or_default(nvs_handle, "base_topic", config->base_topic, sizeof(config->base_topic), s_default_config.base_topic);
+            load_string_or_default(nvs_handle, "display_name", config->display_name, sizeof(config->display_name), s_default_config.display_name);
 
             uint8_t enable_discovery = s_default_config.enable_discovery;
             if (nvs_get_u8(nvs_handle, "discovery", &enable_discovery) == ESP_OK) {
-                s_app_config.enable_discovery = enable_discovery != 0;
+                config->enable_discovery = enable_discovery != 0;
             }
 
             nvs_close(nvs_handle);
@@ -93,64 +149,61 @@ esp_err_t app_config_init(void) {
     if (ret == ESP_OK) {
         uint8_t factory_reset = 0;
         if (nvs_get_u8(nvs_handle, "factory_reset", &factory_reset) == ESP_OK && factory_reset) {
-            s_app_config = s_default_config;
-            panel_layout_defaults(&s_app_config.layout);
-            (void) panel_layout_parse(APPCFG_DEFAULT_LAYOUT_JSON, &s_app_config.layout);
-            s_app_config.default_page = (app_default_page_t)s_app_config.layout.default_page;
+            config_reset_to_defaults(config);
         }
-        size_t required_size = sizeof(s_app_config.base_topic);
-        nvs_get_str(nvs_handle, "base_topic", s_app_config.base_topic, &required_size);
-        required_size = sizeof(s_app_config.display_name);
-        nvs_get_str(nvs_handle, "display_name", s_app_config.display_name, &required_size);
-        required_size = sizeof(s_app_config.wifi_ssid); nvs_get_str(nvs_handle, "wifi_ssid", s_app_config.wifi_ssid, &required_size);
-        required_size = sizeof(s_app_config.wifi_password); nvs_get_str(nvs_handle, "wifi_pass", s_app_config.wifi_password, &required_size);
-        required_size = sizeof(s_app_config.mqtt_uri); nvs_get_str(nvs_handle, "mqtt_uri", s_app_config.mqtt_uri, &required_size);
-        required_size = sizeof(s_app_config.mqtt_username); nvs_get_str(nvs_handle, "mqtt_user", s_app_config.mqtt_username, &required_size);
-        required_size = sizeof(s_app_config.mqtt_password); nvs_get_str(nvs_handle, "mqtt_pass", s_app_config.mqtt_password, &required_size);
-        required_size = sizeof(s_app_config.discovery_prefix); nvs_get_str(nvs_handle, "disc_pref", s_app_config.discovery_prefix, &required_size);
-        uint8_t mqtt_tls = s_app_config.mqtt_require_tls;
-        if (nvs_get_u8(nvs_handle, "mqtt_tls", &mqtt_tls) == ESP_OK) s_app_config.mqtt_require_tls = mqtt_tls != 0;
+        size_t required_size = sizeof(config->base_topic);
+        nvs_get_str(nvs_handle, "base_topic", config->base_topic, &required_size);
+        required_size = sizeof(config->display_name);
+        nvs_get_str(nvs_handle, "display_name", config->display_name, &required_size);
+        required_size = sizeof(config->wifi_ssid); nvs_get_str(nvs_handle, "wifi_ssid", config->wifi_ssid, &required_size);
+        required_size = sizeof(config->wifi_password); nvs_get_str(nvs_handle, "wifi_pass", config->wifi_password, &required_size);
+        required_size = sizeof(config->mqtt_uri); nvs_get_str(nvs_handle, "mqtt_uri", config->mqtt_uri, &required_size);
+        required_size = sizeof(config->mqtt_username); nvs_get_str(nvs_handle, "mqtt_user", config->mqtt_username, &required_size);
+        required_size = sizeof(config->mqtt_password); nvs_get_str(nvs_handle, "mqtt_pass", config->mqtt_password, &required_size);
+        required_size = sizeof(config->discovery_prefix); nvs_get_str(nvs_handle, "disc_pref", config->discovery_prefix, &required_size);
+        uint8_t mqtt_tls = config->mqtt_require_tls;
+        if (nvs_get_u8(nvs_handle, "mqtt_tls", &mqtt_tls) == ESP_OK) config->mqtt_require_tls = mqtt_tls != 0;
         size_t ca_size = sizeof(s_runtime_mqtt_ca);
         if (nvs_get_str(nvs_handle, "mqtt_ca", s_runtime_mqtt_ca, &ca_size) == ESP_OK) {
-            s_app_config.mqtt_ca_certificate = s_runtime_mqtt_ca;
+            config->mqtt_ca_certificate = s_runtime_mqtt_ca;
         }
-        size_t token_size = sizeof(s_runtime_screenshot_token);
-        if (nvs_get_str(nvs_handle, RUNTIME_SCREENSHOT_TOKEN_KEY, s_runtime_screenshot_token, &token_size) == ESP_OK) {
-            s_app_config.screenshot_token = s_runtime_screenshot_token;
+        size_t token_size = sizeof(snapshot->screenshot_token);
+        if (nvs_get_str(nvs_handle, RUNTIME_SCREENSHOT_TOKEN_KEY, snapshot->screenshot_token, &token_size) == ESP_OK) {
+            config->screenshot_token = snapshot->screenshot_token;
         }
         uint8_t default_page;
         if (nvs_get_u8(nvs_handle, "default_page", &default_page) == ESP_OK && default_page < PANEL_PAGE_COUNT &&
-            panel_layout_contains(&s_app_config.layout, (panel_page_id_t)default_page)) {
-            s_app_config.default_page = (app_default_page_t)default_page;
+            panel_layout_contains(&config->layout, (panel_page_id_t)default_page)) {
+            config->default_page = (app_default_page_t)default_page;
         }
         char layout_json[PANEL_LAYOUT_JSON_SIZE];
         size_t layout_size = sizeof(layout_json);
-        s_app_config.layout.default_page = (panel_page_id_t)s_app_config.default_page;
+        config->layout.default_page = (panel_page_id_t)config->default_page;
         if (nvs_get_str(nvs_handle, "pages", layout_json, &layout_size) == ESP_OK &&
-            panel_layout_parse(layout_json, &s_app_config.layout)) {
-            s_app_config.default_page = (app_default_page_t)s_app_config.layout.default_page;
+            panel_layout_parse(layout_json, &config->layout)) {
+            config->default_page = (app_default_page_t)config->layout.default_page;
         }
         nvs_close(nvs_handle);
         ESP_LOGI(TAG, "Runtime configuration loaded (Wi-Fi SSID length %u, MQTT %s)",
-                 (unsigned)strnlen(s_app_config.wifi_ssid, sizeof(s_app_config.wifi_ssid)),
-                 s_app_config.mqtt_uri[0] != '\0' ? "configured" : "not configured");
+                 (unsigned)strnlen(config->wifi_ssid, sizeof(config->wifi_ssid)),
+                 config->mqtt_uri[0] != '\0' ? "configured" : "not configured");
     } else if (ret != ESP_ERR_NVS_NOT_FOUND) {
         ESP_RETURN_ON_ERROR(ret, TAG, "Failed to open runtime config");
     }
 
+    s_snapshot_index = 0;
+    atomic_store(&s_current, config);
     s_initialized = true;
     ESP_LOGI(TAG, "App config loaded");
     return ESP_OK;
 }
 
 const app_config_t *app_config_get(void) {
-    if (!s_initialized) {
-        s_app_config = s_default_config;
-    }
-    return &s_app_config;
+    const app_config_t *current = s_initialized ? atomic_load(&s_current) : NULL;
+    return current != NULL ? current : &s_default_config;
 }
 
-esp_err_t app_config_set_base_topic(const char *base_topic) {
+static esp_err_t set_base_topic_locked(const char *base_topic) {
     nvs_handle_t nvs_handle;
     size_t length;
 
@@ -175,12 +228,14 @@ esp_err_t app_config_set_base_topic(const char *base_topic) {
     nvs_close(nvs_handle);
     ESP_RETURN_ON_ERROR(ret, TAG, "Failed to save base topic");
 
-    strlcpy(s_app_config.base_topic, base_topic, sizeof(s_app_config.base_topic));
-    ESP_LOGI(TAG, "Base topic updated to '%s'", s_app_config.base_topic);
+    config_snapshot_t *next = config_begin_update();
+    strlcpy(next->config.base_topic, base_topic, sizeof(next->config.base_topic));
+    config_publish(next);
+    ESP_LOGI(TAG, "Base topic updated to '%s'", base_topic);
     return ESP_OK;
 }
 
-esp_err_t app_config_set_display_name(const char *display_name) {
+static esp_err_t set_display_name_locked(const char *display_name) {
     if (display_name == NULL) return ESP_ERR_INVALID_ARG;
     const size_t length = strnlen(display_name, APP_DISPLAY_NAME_MAX_LEN + 1);
     if (length == 0 || length > APP_DISPLAY_NAME_MAX_LEN) return ESP_ERR_INVALID_ARG;
@@ -193,109 +248,13 @@ esp_err_t app_config_set_display_name(const char *display_name) {
     if (ret == ESP_OK) ret = nvs_commit(handle);
     nvs_close(handle);
     if (ret != ESP_OK) return ret;
-    strlcpy(s_app_config.display_name, display_name, sizeof(s_app_config.display_name));
+    config_snapshot_t *next = config_begin_update();
+    strlcpy(next->config.display_name, display_name, sizeof(next->config.display_name));
+    config_publish(next);
     return ESP_OK;
 }
 
-esp_err_t app_config_set_wifi_credentials(const char *ssid, const char *password) {
-    if (ssid == NULL || password == NULL) return ESP_ERR_INVALID_ARG;
-    const size_t ssid_len = strnlen(ssid, APP_WIFI_MAX_SSID_LEN + 1);
-    const size_t pass_len = strnlen(password, APP_WIFI_MAX_PASSWORD_LEN + 1);
-    if (ssid_len == 0 || ssid_len > APP_WIFI_MAX_SSID_LEN || pass_len > APP_WIFI_MAX_PASSWORD_LEN) return ESP_ERR_INVALID_ARG;
-    for (size_t i = 0; i < ssid_len + pass_len; ++i) {
-        const unsigned char c = (unsigned char) (i < ssid_len ? ssid[i] : password[i - ssid_len]);
-        if (c < 0x20 || c == 0x7f) return ESP_ERR_INVALID_ARG;
-    }
-    nvs_handle_t handle;
-    ESP_RETURN_ON_ERROR(nvs_open(RUNTIME_CONFIG_NAMESPACE, NVS_READWRITE, &handle), TAG, "Open Wi-Fi config");
-    esp_err_t ret = nvs_set_str(handle, "wifi_ssid", ssid);
-    if (ret == ESP_OK) ret = nvs_set_str(handle, "wifi_pass", password);
-    if (ret == ESP_OK) ret = nvs_commit(handle);
-    nvs_close(handle);
-    if (ret != ESP_OK) return ret;
-    strlcpy(s_app_config.wifi_ssid, ssid, sizeof(s_app_config.wifi_ssid));
-    strlcpy(s_app_config.wifi_password, password, sizeof(s_app_config.wifi_password));
-    return ESP_OK;
-}
-
-esp_err_t app_config_set_provisioning(const char *ssid, const char *password, const char *display_name) {
-    if (ssid == NULL || password == NULL || display_name == NULL ||
-        strnlen(ssid, APP_WIFI_MAX_SSID_LEN + 1) == 0 ||
-        strnlen(ssid, APP_WIFI_MAX_SSID_LEN + 1) > APP_WIFI_MAX_SSID_LEN ||
-        strnlen(password, APP_WIFI_MAX_PASSWORD_LEN + 1) > APP_WIFI_MAX_PASSWORD_LEN ||
-        strnlen(display_name, APP_DISPLAY_NAME_MAX_LEN + 1) == 0 ||
-        strnlen(display_name, APP_DISPLAY_NAME_MAX_LEN + 1) > APP_DISPLAY_NAME_MAX_LEN) return ESP_ERR_INVALID_ARG;
-    for (const char *p = ssid; *p; ++p) if ((unsigned char)*p < 0x20 || *p == 0x7f) return ESP_ERR_INVALID_ARG;
-    for (const char *p = password; *p; ++p) if ((unsigned char)*p < 0x20 || *p == 0x7f) return ESP_ERR_INVALID_ARG;
-    for (const char *p = display_name; *p; ++p) if ((unsigned char)*p < 0x20 || *p == 0x7f) return ESP_ERR_INVALID_ARG;
-    if (app_config_display_hostname(display_name, (char[33]){0}, 33) != ESP_OK) return ESP_ERR_INVALID_ARG;
-    nvs_handle_t handle;
-    ESP_RETURN_ON_ERROR(nvs_open(RUNTIME_CONFIG_NAMESPACE, NVS_READWRITE, &handle), TAG, "Open provisioning config");
-    esp_err_t ret = nvs_set_str(handle, "wifi_ssid", ssid);
-    if (ret == ESP_OK) ret = nvs_set_str(handle, "wifi_pass", password);
-    if (ret == ESP_OK) ret = nvs_set_str(handle, "display_name", display_name);
-    if (ret == ESP_OK) ret = nvs_commit(handle);
-    nvs_close(handle);
-    if (ret != ESP_OK) return ret;
-    strlcpy(s_app_config.wifi_ssid, ssid, sizeof(s_app_config.wifi_ssid));
-    strlcpy(s_app_config.wifi_password, password, sizeof(s_app_config.wifi_password));
-    strlcpy(s_app_config.display_name, display_name, sizeof(s_app_config.display_name));
-    return ESP_OK;
-}
-
-esp_err_t app_config_set_mqtt_credentials(const char *uri, const char *username, const char *password) {
-    if (uri == NULL || username == NULL || password == NULL) return ESP_ERR_INVALID_ARG;
-    const size_t uri_len = strnlen(uri, APP_MQTT_URI_MAX_LEN + 1), user_len = strnlen(username, APP_MQTT_USERNAME_MAX_LEN + 1), pass_len = strnlen(password, APP_MQTT_PASSWORD_MAX_LEN + 1);
-    if (uri_len == 0 || uri_len > APP_MQTT_URI_MAX_LEN || user_len > APP_MQTT_USERNAME_MAX_LEN || pass_len > APP_MQTT_PASSWORD_MAX_LEN) return ESP_ERR_INVALID_ARG;
-    if (strncmp(uri, "mqtt://", 7) != 0 && strncmp(uri, "mqtts://", 8) != 0) return ESP_ERR_INVALID_ARG;
-    nvs_handle_t handle;
-    ESP_RETURN_ON_ERROR(nvs_open(RUNTIME_CONFIG_NAMESPACE, NVS_READWRITE, &handle), TAG, "Open MQTT config");
-    esp_err_t ret = nvs_set_str(handle, "mqtt_uri", uri);
-    if (ret == ESP_OK) ret = nvs_set_str(handle, "mqtt_user", username);
-    if (ret == ESP_OK) ret = nvs_set_str(handle, "mqtt_pass", password);
-    if (ret == ESP_OK) ret = nvs_commit(handle);
-    nvs_close(handle);
-    if (ret != ESP_OK) return ret;
-    strlcpy(s_app_config.mqtt_uri, uri, sizeof(s_app_config.mqtt_uri));
-    strlcpy(s_app_config.mqtt_username, username, sizeof(s_app_config.mqtt_username));
-    strlcpy(s_app_config.mqtt_password, password, sizeof(s_app_config.mqtt_password));
-    return ESP_OK;
-}
-
-esp_err_t app_config_set_network_options(const char *uri, const char *username, const char *password,
-                                         bool require_tls, const char *discovery_prefix, const char *base_topic) {
-    if (uri == NULL || username == NULL || password == NULL || discovery_prefix == NULL || base_topic == NULL) return ESP_ERR_INVALID_ARG;
-    const size_t uri_len = strnlen(uri, APP_MQTT_URI_MAX_LEN + 1), user_len = strnlen(username, APP_MQTT_USERNAME_MAX_LEN + 1), pass_len = strnlen(password, APP_MQTT_PASSWORD_MAX_LEN + 1);
-    const size_t prefix_len = strnlen(discovery_prefix, APP_TOPIC_MAX_LEN + 1), topic_len = strnlen(base_topic, APP_TOPIC_MAX_LEN + 1);
-    if (uri_len == 0 || uri_len > APP_MQTT_URI_MAX_LEN || user_len > APP_MQTT_USERNAME_MAX_LEN || pass_len > APP_MQTT_PASSWORD_MAX_LEN ||
-        prefix_len == 0 || prefix_len > APP_TOPIC_MAX_LEN || topic_len == 0 || topic_len > APP_TOPIC_MAX_LEN ||
-        (strncmp(uri, "mqtt://", 7) != 0 && strncmp(uri, "mqtts://", 8) != 0)) return ESP_ERR_INVALID_ARG;
-    for (size_t i = 0; i < uri_len + user_len + pass_len; ++i) {
-        const char c = i < uri_len ? uri[i] : (i < uri_len + user_len ? username[i - uri_len] : password[i - uri_len - user_len]);
-        if ((unsigned char)c < 0x20 || c == 0x7f) return ESP_ERR_INVALID_ARG;
-    }
-    for (size_t i = 0; i < prefix_len + topic_len; ++i) {
-        const char c = i < prefix_len ? discovery_prefix[i] : base_topic[i - prefix_len];
-        if ((unsigned char)c < 0x21 || c == '#') return ESP_ERR_INVALID_ARG;
-    }
-    nvs_handle_t handle;
-    ESP_RETURN_ON_ERROR(nvs_open(RUNTIME_CONFIG_NAMESPACE, NVS_READWRITE, &handle), TAG, "Open network options");
-    esp_err_t ret = nvs_set_str(handle, "mqtt_uri", uri);
-    if (ret == ESP_OK) ret = nvs_set_str(handle, "mqtt_user", username);
-    if (ret == ESP_OK) ret = nvs_set_str(handle, "mqtt_pass", password);
-    if (ret == ESP_OK) ret = nvs_set_str(handle, "disc_pref", discovery_prefix);
-    if (ret == ESP_OK) ret = nvs_set_str(handle, "base_topic", base_topic);
-    if (ret == ESP_OK) ret = nvs_set_u8(handle, "mqtt_tls", require_tls ? 1 : 0);
-    if (ret == ESP_OK) ret = nvs_commit(handle);
-    nvs_close(handle);
-    if (ret != ESP_OK) return ret;
-    strlcpy(s_app_config.discovery_prefix, discovery_prefix, sizeof(s_app_config.discovery_prefix));
-    strlcpy(s_app_config.base_topic, base_topic, sizeof(s_app_config.base_topic));
-    s_app_config.mqtt_require_tls = require_tls;
-    return ESP_OK;
-}
-
-esp_err_t app_config_set_portal_config(const char *ssid, const char *wifi_password,
+static esp_err_t set_portal_config_locked(const char *ssid, const char *wifi_password,
                                        const char *display_name, const char *mqtt_uri,
                                        const char *mqtt_username, const char *mqtt_password,
                                        bool require_tls, const char *discovery_prefix,
@@ -362,30 +321,32 @@ esp_err_t app_config_set_portal_config(const char *ssid, const char *wifi_passwo
     if (ret == ESP_OK) ret = nvs_commit(handle);
     nvs_close(handle);
     if (ret != ESP_OK) return ret;
-    strlcpy(s_app_config.wifi_ssid, ssid, sizeof(s_app_config.wifi_ssid));
-    strlcpy(s_app_config.wifi_password, wifi_password, sizeof(s_app_config.wifi_password));
-    strlcpy(s_app_config.display_name, display_name, sizeof(s_app_config.display_name));
-    strlcpy(s_app_config.mqtt_uri, mqtt_uri, sizeof(s_app_config.mqtt_uri));
-    strlcpy(s_app_config.mqtt_username, mqtt_username, sizeof(s_app_config.mqtt_username));
-    strlcpy(s_app_config.mqtt_password, mqtt_password, sizeof(s_app_config.mqtt_password));
-    strlcpy(s_app_config.discovery_prefix, discovery_prefix, sizeof(s_app_config.discovery_prefix));
-    strlcpy(s_app_config.base_topic, base_topic, sizeof(s_app_config.base_topic));
-    s_app_config.mqtt_require_tls = require_tls;
+    config_snapshot_t *next = config_begin_update();
+    app_config_t *config = &next->config;
+    strlcpy(config->wifi_ssid, ssid, sizeof(config->wifi_ssid));
+    strlcpy(config->wifi_password, wifi_password, sizeof(config->wifi_password));
+    strlcpy(config->display_name, display_name, sizeof(config->display_name));
+    strlcpy(config->mqtt_uri, mqtt_uri, sizeof(config->mqtt_uri));
+    strlcpy(config->mqtt_username, mqtt_username, sizeof(config->mqtt_username));
+    strlcpy(config->mqtt_password, mqtt_password, sizeof(config->mqtt_password));
+    strlcpy(config->discovery_prefix, discovery_prefix, sizeof(config->discovery_prefix));
+    strlcpy(config->base_topic, base_topic, sizeof(config->base_topic));
+    config->mqtt_require_tls = require_tls;
     if (ca_len != 0) {
         memcpy(s_runtime_mqtt_ca, mqtt_ca_certificate, ca_len + 1);
-        s_app_config.mqtt_ca_certificate = s_runtime_mqtt_ca;
+        config->mqtt_ca_certificate = s_runtime_mqtt_ca;
     } else {
         s_runtime_mqtt_ca[0] = '\0';
-        s_app_config.mqtt_ca_certificate = APPCFG_MQTT_CA_CERTIFICATE;
+        config->mqtt_ca_certificate = APPCFG_MQTT_CA_CERTIFICATE;
     }
-    strlcpy(s_runtime_screenshot_token, screenshot_token, sizeof(s_runtime_screenshot_token));
-    s_app_config.screenshot_token = s_runtime_screenshot_token;
+    snapshot_set_token(next, screenshot_token);
+    config_publish(next);
     ESP_LOGI(TAG, "Portal configuration committed (Wi-Fi SSID length %u, MQTT %s)",
              (unsigned)ssid_len, mqtt_uri[0] != '\0' ? "configured" : "not configured");
     return ESP_OK;
 }
 
-esp_err_t app_config_set_screenshot_token(const char *token) {
+static esp_err_t set_screenshot_token_locked(const char *token) {
     if (!token) return ESP_ERR_INVALID_ARG;
     size_t length = strnlen(token, APP_SCREENSHOT_TOKEN_MAX_LEN + 1);
     if (length > APP_SCREENSHOT_TOKEN_MAX_LEN || (length != 0 && length < 32)) return ESP_ERR_INVALID_ARG;
@@ -396,12 +357,13 @@ esp_err_t app_config_set_screenshot_token(const char *token) {
     if (ret == ESP_OK) ret = nvs_commit(handle);
     nvs_close(handle);
     if (ret != ESP_OK) return ret;
-    strlcpy(s_runtime_screenshot_token, token, sizeof(s_runtime_screenshot_token));
-    s_app_config.screenshot_token = s_runtime_screenshot_token;
+    config_snapshot_t *next = config_begin_update();
+    snapshot_set_token(next, token);
+    config_publish(next);
     return ESP_OK;
 }
 
-esp_err_t app_config_reset_runtime(void) {
+static esp_err_t reset_runtime_locked(void) {
     nvs_handle_t handle;
     esp_err_t ret = nvs_open(RUNTIME_CONFIG_NAMESPACE, NVS_READWRITE, &handle);
     if (ret == ESP_ERR_NVS_NOT_FOUND) ret = ESP_OK;
@@ -435,12 +397,10 @@ esp_err_t app_config_reset_runtime(void) {
         (void)nvs_commit(marker_handle);
         nvs_close(marker_handle);
     }
-    s_app_config = s_default_config;
-    panel_layout_defaults(&s_app_config.layout);
-    (void) panel_layout_parse(APPCFG_DEFAULT_LAYOUT_JSON, &s_app_config.layout);
-    s_app_config.default_page = (app_default_page_t)s_app_config.layout.default_page;
-    s_app_config.screenshot_token = APPCFG_SCREENSHOT_TOKEN;
-    s_runtime_screenshot_token[0] = '\0';
+    config_snapshot_t *next = config_begin_update();
+    config_reset_to_defaults(&next->config);
+    next->screenshot_token[0] = '\0';
+    config_publish(next);
     s_runtime_mqtt_ca[0] = '\0';
     ESP_LOGI(TAG, "Runtime configuration erased; setup AP will start after reboot");
     return ESP_OK;
@@ -484,12 +444,12 @@ const char *app_config_default_page_name(app_default_page_t page) {
     return panel_page_name((panel_page_id_t)page);
 }
 
-esp_err_t app_config_set_pages(const char *json) {
+static esp_err_t set_pages_locked(const char *json) {
     panel_layout_t candidate;
     if (!panel_layout_parse(json, &candidate)) return ESP_ERR_INVALID_ARG;
     char canonical[PANEL_LAYOUT_JSON_SIZE], previous[PANEL_LAYOUT_JSON_SIZE];
     if (!panel_layout_json(&candidate, canonical, sizeof(canonical))) return ESP_ERR_NO_MEM;
-    if (panel_layout_json(&s_app_config.layout, previous, sizeof(previous)) && strcmp(canonical, previous) == 0)
+    if (panel_layout_json(&app_config_get()->layout, previous, sizeof(previous)) && strcmp(canonical, previous) == 0)
         return ESP_OK;
     nvs_handle_t handle;
     ESP_RETURN_ON_ERROR(nvs_open(RUNTIME_CONFIG_NAMESPACE, NVS_READWRITE, &handle), TAG, "Open layout config");
@@ -497,16 +457,73 @@ esp_err_t app_config_set_pages(const char *json) {
     if (ret == ESP_OK) ret = nvs_commit(handle);
     nvs_close(handle);
     if (ret != ESP_OK) return ret;
-    s_app_config.layout = candidate;
-    s_app_config.default_page = (app_default_page_t)candidate.default_page;
+    config_snapshot_t *next = config_begin_update();
+    next->config.layout = candidate;
+    next->config.default_page = (app_default_page_t)candidate.default_page;
+    config_publish(next);
     return ESP_OK;
 }
 
-esp_err_t app_config_set_default_page(const char *page_name) {
-    panel_layout_t candidate = s_app_config.layout;
+static esp_err_t set_default_page_locked(const char *page_name) {
+    panel_layout_t candidate = app_config_get()->layout;
     if (!panel_page_parse(page_name, &candidate.default_page) ||
         !panel_layout_contains(&candidate, candidate.default_page)) return ESP_ERR_INVALID_ARG;
     char json[PANEL_LAYOUT_JSON_SIZE];
     if (!panel_layout_json(&candidate, json, sizeof(json))) return ESP_ERR_NO_MEM;
-    return app_config_set_pages(json);
+    return set_pages_locked(json);
+}
+
+esp_err_t app_config_set_base_topic(const char *base_topic) {
+    config_lock();
+    const esp_err_t result = set_base_topic_locked(base_topic);
+    config_unlock();
+    return result;
+}
+
+esp_err_t app_config_set_display_name(const char *display_name) {
+    config_lock();
+    const esp_err_t result = set_display_name_locked(display_name);
+    config_unlock();
+    return result;
+}
+
+esp_err_t app_config_set_screenshot_token(const char *token) {
+    config_lock();
+    const esp_err_t result = set_screenshot_token_locked(token);
+    config_unlock();
+    return result;
+}
+
+esp_err_t app_config_reset_runtime(void) {
+    config_lock();
+    const esp_err_t result = reset_runtime_locked();
+    config_unlock();
+    return result;
+}
+
+esp_err_t app_config_set_pages(const char *json) {
+    config_lock();
+    const esp_err_t result = set_pages_locked(json);
+    config_unlock();
+    return result;
+}
+
+esp_err_t app_config_set_portal_config(const char *ssid, const char *wifi_password,
+                                       const char *display_name, const char *mqtt_uri,
+                                       const char *mqtt_username, const char *mqtt_password,
+                                       bool require_tls, const char *discovery_prefix,
+                                       const char *base_topic, const char *screenshot_token,
+                                       const char *mqtt_ca_certificate) {    config_lock();
+    const esp_err_t result = set_portal_config_locked(ssid, wifi_password, display_name, mqtt_uri, mqtt_username,
+                                                      mqtt_password, require_tls, discovery_prefix, base_topic,
+                                                      screenshot_token, mqtt_ca_certificate);
+    config_unlock();
+    return result;
+}
+
+esp_err_t app_config_set_default_page(const char *page_name) {
+    config_lock();
+    const esp_err_t result = set_default_page_locked(page_name);
+    config_unlock();
+    return result;
 }

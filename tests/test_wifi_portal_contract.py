@@ -6,14 +6,15 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "src/wifi_manager.c").read_text()
+SOURCE = (ROOT / "src/setup_portal.c").read_text()
+WIFI = (ROOT / "src/wifi_manager.c").read_text()
 HANDLERS = ("portal_get", "portal_scan", "portal_status", "portal_redirect", "portal_post", "portal_reset")
 
 
-def _function(signature: str) -> str:
+def _function(signature: str, source: str = SOURCE) -> str:
     """Return one top-level function, from its signature to its closing brace."""
-    start = SOURCE.index(signature)
-    return SOURCE[start:SOURCE.index("\n}\n", start) + 3]
+    start = source.index(signature)
+    return source[start:source.index("\n}\n", start) + 3]
 
 
 def _handler(name: str) -> str:
@@ -31,13 +32,13 @@ class WifiPortalContractTests(unittest.TestCase):
             self.assertEqual(first, "if (!portal_request_from_ap(req)) return portal_forbidden(req);", handler)
 
     def test_ap_password_is_not_derived_from_the_mac(self):
-        start = SOURCE.index("esp_err_t wifi_manager_start_ap(void)")
-        self.assertNotIn("mac[", SOURCE[start:].split("config.ap.password", 1)[1].split(";", 1)[0])
-        credentials = SOURCE[SOURCE.index("esp_err_t wifi_manager_get_ap_credentials("):]
+        start = WIFI.index("esp_err_t wifi_manager_start_ap(void)")
+        self.assertNotIn("mac[", WIFI[start:].split("config.ap.password", 1)[1].split(";", 1)[0])
+        credentials = WIFI[WIFI.index("esp_err_t wifi_manager_get_ap_credentials("):]
         self.assertNotIn("mac[2]", credentials)
 
     def test_idle_timeout_keeps_the_ap_of_an_unprovisioned_panel(self):
-        self.assertIn("if (s_ap_active && !s_provisioning_mode) {", SOURCE)
+        self.assertIn("if (s_ap_active && !s_provisioning_mode) {", WIFI)
 
     def test_portal_never_logs_the_broker_uri(self):
         self.assertNotIn("'%s'\", mqtt_uri", SOURCE)
@@ -52,8 +53,8 @@ class WifiPortalContractTests(unittest.TestCase):
 
     def test_password_escaping_and_form_fields(self):
         """Compile the portal's pure helpers and exercise them on the host."""
-        helpers = "".join(_function(name) for name in (
-            "static void ap_password_generate(void)", "static void html_escape(",
+        helpers = _function("static void ap_password_generate(void)", WIFI) + "".join(_function(name) for name in (
+            "static void html_escape(",
             "static int hex_digit(", "static void form_url_decode(", "static bool form_field("))
         harness = r'''
 #include <assert.h>
@@ -146,8 +147,9 @@ int main(void) {
         self.assertNotIn("mqtt_password", body)
 
     def test_timeout_is_activity_based(self):
-        self.assertIn("s_ap_last_activity_us", SOURCE)
-        self.assertIn("idle_us >= (int64_t)AP_IDLE_TIMEOUT_MS * 1000LL", SOURCE)
+        self.assertIn("wifi_manager_ap_activity();", _function("static void portal_activity(void)"))
+        self.assertIn("s_ap_last_activity_us", _function("void wifi_manager_ap_activity(void)", WIFI))
+        self.assertIn("idle_us >= (int64_t)AP_IDLE_TIMEOUT_MS * 1000LL", WIFI)
 
 
 if __name__ == "__main__":
