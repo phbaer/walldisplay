@@ -630,6 +630,21 @@ static void on_mqtt_message(const char *topic, const char *payload, bool retaine
     }
 }
 
+static void network_start_task(void *arg) {
+    (void)arg;
+    /* Router advertisements and Wi-Fi may arrive after the bounded boot wait.
+     * Keep startup alive without blocking the display or the setup portal. */
+    while (!wifi_manager_station_ready()) vTaskDelay(pdMS_TO_TICKS(1000));
+    ui_set_wifi_state("WiFi ok");
+    const esp_err_t err = mqtt_app_start(on_mqtt_connected, on_mqtt_message, NULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "MQTT start failed: %s", esp_err_to_name(err));
+        ui_set_connection_status("MQTT start failed");
+        ui_set_mqtt_state("MQTT off");
+    }
+    vTaskDelete(NULL);
+}
+
 void app_main(void) {
     display_board_handle_t board = {0};
     esp_err_t err;
@@ -670,20 +685,17 @@ void app_main(void) {
         ui_set_title_text(app_config_get()->display_name);
     }
 
-    ui_set_wifi_state("WiFi ok");
-
     if (!wifi_manager_station_ready()) {
-        ui_set_connection_status("Wi-Fi setup AP active");
-        ui_set_wifi_state("Setup AP");
-        (void)ui_show_page("about");
-        return;
+        const bool ap_active = wifi_manager_ap_active();
+        ui_set_connection_status(ap_active ? "Wi-Fi setup AP active" : "Waiting for network address...");
+        ui_set_wifi_state(ap_active ? "Setup AP" : "WiFi...");
+        if (ap_active) {
+            (void)ui_show_page("about");
+            return;
+        }
     }
-
-    err = mqtt_app_start(on_mqtt_connected, on_mqtt_message, NULL);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "MQTT start failed: %s", esp_err_to_name(err));
-        ui_set_connection_status("MQTT start failed");
-        ui_set_mqtt_state("MQTT off");
-        return;
+    if (xTaskCreate(network_start_task, "network_start", 4096, NULL, 5, NULL) != pdPASS) {
+        ESP_LOGE(TAG, "Could not start network worker");
+        ui_set_connection_status("Network startup failed");
     }
 }

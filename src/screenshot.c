@@ -1,3 +1,4 @@
+#include "walldisplay/network_client.h"
 #include "walldisplay/screenshot.h"
 #include "walldisplay/app_config.h"
 #include "walldisplay/security_policy.h"
@@ -86,11 +87,10 @@ static void publish_status(const char *state, size_t bytes, const char *name, es
         return;
     }
 
-    char url[80] = "";
-    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    esp_netif_ip_info_t ip_info;
-    if (name != NULL && netif != NULL && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
-        snprintf(url, sizeof(url), "http://" IPSTR ":%u" SCREENSHOT_URI "?name=%s", IP2STR(&ip_info.ip), SCREENSHOT_HTTP_PORT, name);
+    char url[128] = "";
+    char host[48];
+    if (name != NULL && network_station_http_host(host, sizeof(host)) == ESP_OK) {
+        snprintf(url, sizeof(url), "http://%s:%u" SCREENSHOT_URI "?name=%s", host, SCREENSHOT_HTTP_PORT, name);
     }
 
     char payload[320];

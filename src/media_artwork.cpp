@@ -1,3 +1,4 @@
+#include "walldisplay/network_client.h"
 #include "walldisplay/media_artwork.h"
 #include "walldisplay/ui.h"
 #include "walldisplay/artwork_policy.hpp"
@@ -148,8 +149,8 @@ private:
             config.url = request.url;
             config.timeout_ms = 15000;
             if (is_https) config.crt_bundle_attach = esp_crt_bundle_attach;
-            esp_http_client_handle_t client = esp_http_client_init(&config);
-            const esp_err_t open_result = client == nullptr ? ESP_ERR_NO_MEM : esp_http_client_open(client, 0);
+            esp_http_client_handle_t client = nullptr;
+            const esp_err_t open_result = network_http_open(&config, nullptr, &client);
             const int content_length = open_result == ESP_OK ? esp_http_client_fetch_headers(client) : -1;
             const int status_code = client == nullptr ? 0 : esp_http_client_get_status_code(client);
             if (client == nullptr || open_result != ESP_OK || status_code != 200 || content_length > static_cast<int>(kMaxDownload)) {

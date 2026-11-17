@@ -1,3 +1,4 @@
+#include "walldisplay/network_client.h"
 #include "walldisplay/ui.h"
 #include "walldisplay/mqtt_app.h"
 
@@ -456,7 +457,7 @@ static void refresh_about_page(void) {
         }
 
         esp_ip6_addr_t ipv6 = {0};
-        if (esp_netif_get_ip6_global(netif, &ipv6) == ESP_OK) {
+        if (network_get_ip6_address(netif, &ipv6) == ESP_OK) {
             format_ipv6_address(&ipv6, ipv6_global_text, sizeof(ipv6_global_text));
         }
         if (esp_netif_get_ip6_linklocal(netif, &ipv6) == ESP_OK) {

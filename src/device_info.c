@@ -1,3 +1,4 @@
+#include "walldisplay/network_client.h"
 #include "walldisplay/device_info.h"
 
 #include "walldisplay/app_config.h"
@@ -90,7 +91,7 @@ esp_err_t device_info_publish(void) {
     const char *keys[] = {"ipv6_global", "ipv6_linklocal"};
     for (int i = 0; i < 2; ++i) {
         esp_err_t err = netif == NULL ? ESP_ERR_INVALID_STATE :
-            (i == 0 ? esp_netif_get_ip6_global(netif, &ipv6) : esp_netif_get_ip6_linklocal(netif, &ipv6));
+            (i == 0 ? network_get_ip6_address(netif, &ipv6) : esp_netif_get_ip6_linklocal(netif, &ipv6));
         if (err == ESP_OK) {
             snprintf(ipv6_text, sizeof(ipv6_text), IPV6STR, IPV62STR(ipv6));
             cJSON_AddStringToObject(root, keys[i], ipv6_text);
