@@ -6,7 +6,7 @@ Status: implemented, hardware acceptance outstanding.
 
 - Branch: `fix/setup-portal-hardening`.
 - Base: `5ea636c` on `feature/ipv6` (release `1.3.0`, MQTT contract `12`).
-- Selected release: `1.3.1` (fixes; no interface change).
+- Selected release: `1.3.0`, the release already selected by `feature/ipv6`. `main` is at `1.2.0`, and these fixes ship in the same next release, so the version is not raised again.
 - MQTT contract: unchanged at `12`. No topic, payload, or discovery entity changes.
 - Retain these selected versions for all follow-up fixes on this branch.
 

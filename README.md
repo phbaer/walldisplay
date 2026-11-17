@@ -192,10 +192,10 @@ Initial firmware page settings can also be specified in the `display` section of
 
 ## MQTT contract
 
-The firmware, blueprint, custom integration, and Python project release is `1.3.1`; MQTT contract `12`. Both synchronization paths publish retained compatibility metadata to `<base>/set/blueprint_info`:
+The firmware, blueprint, custom integration, and Python project release is `1.3.0`; MQTT contract `12`. Both synchronization paths publish retained compatibility metadata to `<base>/set/blueprint_info`:
 
 ```json
-{"version":"1.3.1","contract":"12"}
+{"version":"1.3.0","contract":"12"}
 ```
 
 | Purpose | Topic | Notes |
@@ -207,7 +207,7 @@ The firmware, blueprint, custom integration, and Python project release is `1.3.
 
 The discovered **Default Panel Widget** select offers the enabled pages in navigation order. Its value is saved in the panel and applied immediately; it is controlled through `<base>/cmd/config/default_page` and reported at `<base>/state/config/default_page`. Home Assistant's next configuration publish restores its configured startup page, so edit the synchronization configuration for a lasting change. The discovered MQTT device name includes the configured panel name in parentheses, making similarly named panels easy to identify in Home Assistant. Discovery configuration messages use retained QoS 0 to avoid filling the panel's TLS publish queue during reconnect; diagnostic device information is published after connection by the periodic device-info timer.
 
-Contract 12 broadens `state/device.ipv6_global` to prefer IPv6 ULA addresses before global addresses and permits bracketed IPv6 hosts in `state/screenshot.url`. Topics and existing fields remain unchanged. Both synchronization paths publish release `1.3.1` / contract `12`; release `1.3.1` hardens the setup portal without changing the contract.
+Contract 12 broadens `state/device.ipv6_global` to prefer IPv6 ULA addresses before global addresses and permits bracketed IPv6 hosts in `state/screenshot.url`. Topics and existing fields remain unchanged. Both synchronization paths publish release `1.3.0` / contract `12`. Release `1.3.0` also contains the setup portal hardening, which does not change the contract.
 
 Contract 6 adds retained `<base>/set/pages` configuration and `<base>/state/config/pages` canonical reporting. Contract 8 adds the `about` page. Contract 9 expands the ordered page layout to five slots (`page1` through `page5`):
 
@@ -350,7 +350,7 @@ git push origin v1.0.0-rc.1
 
 Push the tag to your Forgejo remote to publish firmware (`origin` in the example above). The Forgejo mirror must mirror `refs/tags/v*`; once GitHub receives a new tag, its integration workflow publishes the matching GitHub release automatically. Do not create or retain release branches. Normal non-default branches continue to publish short-lived HACS branch previews through the separate branch-preview workflow; those previews are removed when the branch is deleted.
 
-If a tag was already mirrored before the workflow commit, no new GitHub push event occurs. A maintainer can manually run the HACS workflow with `ref` set to the tagged commit and `tag` set to the existing release tag; this is also the recovery path for an existing release. The firmware workflow verifies that its checked-out commit matches an exact tag. Tags use `vMAJOR.MINOR.PATCH` with an optional SemVer prerelease suffix and must fit the firmware's 32-character manifest version limit. The checked-in project and blueprint version remains the canonical `1.3.1`, while each tagged firmware build embeds its exact tag (for example `v1.0.0-rc.8`) in `APP_FW_VERSION`. Home Assistant can therefore order successive release candidates correctly; the stable `v1.0.0` image reports the stable version and is not offered an older RC.
+If a tag was already mirrored before the workflow commit, no new GitHub push event occurs. A maintainer can manually run the HACS workflow with `ref` set to the tagged commit and `tag` set to the existing release tag; this is also the recovery path for an existing release. The firmware workflow verifies that its checked-out commit matches an exact tag. Tags use `vMAJOR.MINOR.PATCH` with an optional SemVer prerelease suffix and must fit the firmware's 32-character manifest version limit. The checked-in project and blueprint version remains the canonical `1.3.0`, while each tagged firmware build embeds its exact tag (for example `v1.0.0-rc.8`) in `APP_FW_VERSION`. Home Assistant can therefore order successive release candidates correctly; the stable `v1.0.0` image reports the stable version and is not offered an older RC.
 
 Download ordinary test packages from the workflow run's artifacts. They contain the update image, merged factory image, partition archive, and build metadata; they deliberately have no OTA manifest pointing at a nonexistent release. Published manifests contain the checked-out commit SHA and the hash and size of the final signed binary. To test OTA, explicitly select the prerelease manifest URL and use the key already trusted by the panel. A prerelease label does not restrict firmware installation.
 
@@ -362,7 +362,7 @@ Forgejo uses its supported `upload-artifact@v3` action; see [Forgejo artifact co
 
 ## Development
 
-The repository's Python tools and tests use the dependencies declared in `pyproject.toml`; use `uv sync` to create the reproducible test environment. `pyproject.toml` is the canonical project-version source. After changing its `MAJOR.MINOR.PATCH` value, run `python tools/sync_project_version.py` and commit the generated updates to the firmware header, both integration manifests and compatibility payloads, and the blueprint metadata. Forgejo and GitHub workflows verify these checked-in references before building or packaging and fail if they drift. Tagged Forgejo builds pass the release tag separately to the signed firmware build, so the runtime version can include an RC suffix without changing the checked-in `1.3.1` references. ESP-IDF and its Python environment remain separate prerequisites for firmware builds.
+The repository's Python tools and tests use the dependencies declared in `pyproject.toml`; use `uv sync` to create the reproducible test environment. `pyproject.toml` is the canonical project-version source. After changing its `MAJOR.MINOR.PATCH` value, run `python tools/sync_project_version.py` and commit the generated updates to the firmware header, both integration manifests and compatibility payloads, and the blueprint metadata. Forgejo and GitHub workflows verify these checked-in references before building or packaging and fail if they drift. Tagged Forgejo builds pass the release tag separately to the signed firmware build, so the runtime version can include an RC suffix without changing the checked-in `1.3.0` references. ESP-IDF and its Python environment remain separate prerequisites for firmware builds.
 
 Run `sh tests/run_unit_tests.sh` before merging (power/layout, NVS recovery, MQTT framing, replay/authentication, and artwork-policy tests; requires the managed cJSON dependency downloaded by the firmware build). The Python checks require the managed LittleFS dependency downloaded by `idf.py build`; they include full-size capture replacement and simulated NOR-flash power-loss recovery. They also compile actual firmware discovery and validate its payloads against Home Assistant schemas, endpoint coverage, shared device identity, and display/volume templates. They exercise YAML migrations/round trips, Home Assistant forms, footer/grid command routing and replay rejection, matching blueprint/integration payloads, bounded artwork downloads and race handling, and independent synchronization jobs:
 
