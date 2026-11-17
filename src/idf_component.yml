@@ -1,21 +1,24 @@
+# Ranges follow the versions resolved in dependencies.lock, which pins the
+# exact builds. Widen a range deliberately, together with the lock file.
 dependencies:
   idf:
-    version: ">=5.2"
+    version: ">=6.0.2,<7"
+  # LVGL 9.6 does not build with this firmware yet; stay on the 9.5 line.
   lvgl/lvgl:
-    version: ">=9,<10"
+    version: "~9.5.0"
   espressif/esp_lvgl_port:
-    version: "^2.4.3"
+    version: "^2.8.0"
   espressif/esp_lcd_st7701:
-    version: "*"
+    version: "^2.0.2"
   espressif/esp_lcd_panel_io_additions:
-    version: "*"
+    version: "^1.0.1"
   espressif/esp_lcd_touch:
-    version: "*"
+    version: "^1.2.1"
   espressif/esp_lcd_touch_gt911:
-    version: "*"
+    version: "^1.2.0"
   espressif/mqtt:
     version: "^1.0.0"
   espressif/cjson:
-    version: "*"
+    version: "^1.7.19"
   joltwallet/littlefs:
     version: "1.22.3"
