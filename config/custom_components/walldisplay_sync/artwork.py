@@ -33,12 +33,14 @@ class ArtworkCache:
         self.token = secrets.token_urlsafe(24)
         self.source = ""
         self.jpeg: bytes | None = None
+        self._generation = 0
+        self._expires = 0.0
 
     async def async_update(self, source: str) -> bool:
         # Increment before awaiting: older downloads cannot overwrite newer intent.
-        self._generation = getattr(self, "_generation", 0) + 1
+        self._generation += 1
         generation = self._generation
-        if source == self.source and self.jpeg is not None and time.monotonic() < getattr(self, "_expires", 0):
+        if source == self.source and self.jpeg is not None and time.monotonic() < self._expires:
             return True
         if not source:
             self.source, self.jpeg = "", None

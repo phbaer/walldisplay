@@ -14,7 +14,7 @@ Apply this workflow to every change.
    - patch for fixes, refactors, documentation, and maintenance.
 3. Only for a firmware or Home Assistant blueprint change, change `APP_FW_VERSION` in `include/walldisplay/app_config.h` and the blueprint release version in `config/blueprints/automation/walldisplay/mqtt_sync.yaml` once from the feature base. Every follow-up commit in the feature retains those exact selected values. Do not change either version for workflow-only, documentation-only, or other repository maintenance changes.
 4. When the selected feature changes an MQTT topic, payload, discovery entity, or semantic behavior, choose one MQTT contract version and change it in both files once from the feature base. Keep it unchanged for the rest of the feature. Update contract compatibility documentation and discovery diagnostics.
-5. Update `README.md` in the same change. Describe the current behavior, interfaces, configuration, and operational consequences; remove obsolete descriptions.
+5. Update `README.md`, or the document under `docs/` that is the home of the affected fact (see `docs/README.md`), in the same change. Describe the current behavior, interfaces, configuration, and operational consequences; remove obsolete descriptions.
 6. Validate proportionately:
    - firmware: `idf.py build`;
    - blueprint: parse YAML while accepting the Home Assistant `!input` tag;

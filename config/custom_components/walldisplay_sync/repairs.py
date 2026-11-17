@@ -5,6 +5,7 @@ import voluptuous as vol
 
 from homeassistant.components import mqtt
 from homeassistant.components.repairs import RepairsFlow, RepairsFlowResult
+from homeassistant.core import HomeAssistant
 
 
 class FirmwareUpdateRepairFlow(RepairsFlow):
