@@ -24,7 +24,7 @@ FILE(GLOB_RECURSE app_sources ${CMAKE_SOURCE_DIR}/src/*.c ${CMAKE_SOURCE_DIR}/sr
 idf_component_register(
     SRCS ${app_sources}
     INCLUDE_DIRS "../include" "${CMAKE_BINARY_DIR}/generated/include"
-    REQUIRES app_update esp_http_client esp_http_server esp_lcd driver esp_driver_ledc esp_event esp_timer heap mbedtls nvs_flash esp_netif esp_wifi mqtt cjson esp_rom spiffs
+    REQUIRES app_update esp_http_client esp_http_server esp_lcd driver esp_driver_ledc esp_event esp_timer heap mbedtls nvs_flash esp_netif esp_wifi mqtt cjson esp_rom littlefs
     EMBED_FILES
         "assets/panel_background.rgb565"
         "assets/weather/weather_clear_night.argb8888"

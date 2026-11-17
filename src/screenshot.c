@@ -9,7 +9,7 @@
 #include "esp_log.h"
 #include "esp_lvgl_port.h"
 #include "esp_netif.h"
-#include "esp_spiffs.h"
+#include "esp_littlefs.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,7 +24,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
-#define SCREENSHOT_MOUNT_PATH "/spiffs"
+#define SCREENSHOT_MOUNT_PATH "/screenshots"
 #define SCREENSHOT_URI "/screenshot.bmp"
 #define SCREENSHOT_HTTP_PORT 8080
 #define SCREENSHOT_DEFAULT_NAME "screenshot"
@@ -163,13 +163,7 @@ static esp_err_t write_bmp(const uint8_t *frame, uint32_t source_stride, const c
         unlink(temp_path);
         return ESP_FAIL;
     }
-    /* SPIFFS rename does not replace an existing destination. Keep the old
-     * capture until the new file is complete, then replace under the storage lock. */
-    *stage = "storage_replace";
-    if (unlink(file_path) != 0 && errno != ENOENT) {
-        unlink(temp_path);
-        return ESP_FAIL;
-    }
+    /* LittleFS atomically replaces the previous capture after the new file closes. */
     *stage = "storage_rename";
     if (rename(temp_path, file_path) != 0) {
         unlink(temp_path);
@@ -313,14 +307,14 @@ esp_err_t screenshot_init(const display_board_handle_t *board, screenshot_status
     s_status_callback = status_callback;
     s_storage_lock = xSemaphoreCreateMutex();
     ESP_RETURN_ON_FALSE(s_storage_lock != NULL, ESP_ERR_NO_MEM, TAG, "Screenshot mutex allocation failed");
-    const esp_vfs_spiffs_conf_t spiffs = {
+    const esp_vfs_littlefs_conf_t littlefs = {
         .base_path = SCREENSHOT_MOUNT_PATH,
         .partition_label = "storage",
-        .max_files = 16,
-        /* This partition is dedicated to generated screenshots and is blank after flashing. */
+        /* Only transient captures live here. Formatting also migrates existing
+         * SPIFFS storage without changing deployed partition tables. */
         .format_if_mount_failed = true,
     };
-    ESP_RETURN_ON_ERROR(esp_vfs_spiffs_register(&spiffs), TAG, "SPIFFS mount failed");
+    ESP_RETURN_ON_ERROR(esp_vfs_littlefs_register(&littlefs), TAG, "LittleFS mount failed");
 
     /* Captures are transient: remove generated files from previous boots. */
     DIR *directory = opendir(SCREENSHOT_MOUNT_PATH);
