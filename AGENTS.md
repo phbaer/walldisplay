@@ -2,8 +2,8 @@
 
 These rules apply to every AI assistant, LLM, code-generation tool, and automated contributor working in this repository.
 
-1. Treat [README.md](README.md) as the project’s primary technical reference. Keep it accurate and complete enough to be the first source consulted before making a change.
-2. Update the README in the same change as every architecture, logic, interface, configuration, build, firmware, Home Assistant blueprint, or operational-workflow change. Do not defer documentation updates.
+1. Treat [README.md](README.md) and the documents it links under [docs/](docs/README.md) as the project’s primary technical reference. The README is the overview and the first source consulted before making a change; each detailed fact has one home in the README or in one linked document. Keep both accurate and complete.
+2. Update the README, or the linked document that is the home of the affected fact, in the same change as every architecture, logic, interface, configuration, build, firmware, Home Assistant blueprint, or operational-workflow change. Do not defer documentation updates.
 3. Bump release versions only when a change affects firmware or the Home Assistant blueprint, using semantic versioning:
    - major: incompatible behavior, migration, or breaking contract change;
    - minor: backward-compatible feature or architectural capability;

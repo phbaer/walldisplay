@@ -29,7 +29,8 @@ version references; the setup portal is firmware-only.
 
 The portal still has no login of its own: the WPA2 password of the setup AP,
 readable only on the panel, is its access control. Plain HTTP inside the AP
-network and unencrypted NVS remain as documented in the README.
+network and unencrypted NVS remain as documented in
+[Security configuration and firmware signing](../how-to/security-and-signing.md).
 
 ## Verification (2026-11-17)
 
