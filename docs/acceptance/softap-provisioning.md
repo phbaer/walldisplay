@@ -23,8 +23,9 @@ tokens as the generic artifact.
 
 Record the image version, panel MAC, tester, date, and broker used. Flash the
 merged factory image to a panel with erased application configuration. Confirm that
-the panel starts a WPA2 AP with a device-specific SSID and password, and that
-`http://192.168.4.1/` loads from a phone. Use **Refresh networks**, select an
+the panel starts a WPA2 AP with a device-specific SSID and a random password
+shown on the About page, that the password differs after a reboot and cannot be
+derived from the SSID or BSSID, and that `http://192.168.4.1/` loads from a phone. Use **Refresh networks**, select an
 SSID, and verify that the password field stays unchanged. Confirm that the
 page shows a human display name and the generated hostname separately.
 
@@ -46,7 +47,13 @@ Run each test with the previous known-good configuration present:
 | Five or more rapid submissions | Rate limiting responds with an error; portal stays responsive. |
 | Power removed during save | On reboot, NVS contains either the old complete record or the new complete record; AP recovery remains possible. |
 | MQTT AP command `ON` twice | One AP session; no HTTPD bind error. |
-| AP inactivity | AP expires after 15 minutes without portal activity; a request resets the timer. |
+| AP inactivity (configured panel) | An AP enabled over MQTT expires after 15 minutes without portal activity; a request resets the timer. |
+| AP inactivity (unprovisioned panel) | The AP is still available after more than 15 minutes without portal activity. |
+| Portal through the station network | With the AP enabled on a configured panel, `http://<station-ip>/` and `POST /api/reset` return `403`; the same requests through `192.168.4.1` work. |
+| Stored custom CA | The setup page shows the stored certificate; saving without editing keeps it, clearing the field removes it. |
+| CA certificate near 3072 bytes | Save succeeds; a longer certificate is rejected with `400` and nothing changes. |
+| Crafted request without `mqtt_password`, changed SSID or CA | The stored MQTT password is not sent; the MQTT test fails authentication. |
+| AP `OFF` then `ON` repeatedly | Captive DNS answers after every restart; no leaked task or socket. |
 | Reset/reprovision | Deliberate reset flow clears credentials and returns to setup AP. |
 
 ## OTA sign-off
