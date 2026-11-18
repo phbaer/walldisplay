@@ -53,6 +53,33 @@ Checked against the branch head after the remembered-family follow-up:
 - A signed build was not repeated on this date. No panel was flashed and
   hardware acceptance below remains outstanding.
 
+## Hardware status (2026-11-18)
+
+Firmware `v1.3.0-rc.1` (commit `93051d0`) on one panel, connected to a router
+that advertises SLAAC prefixes with RDNSS on the Wi-Fi network. The panel also
+has IPv4 from DHCP. Observed in the panel's serial log and device state; the
+addresses are redacted here.
+
+| Observed | Result |
+| --- | --- |
+| Link-local address on association | Yes: the station created a link-local address. |
+| Global and ULA addresses from router advertisements | Yes: one global (2000::/3) and one ULA (fd00::/8) address, both with the panel's interface identifier. |
+| IPv4 with IPv6 present | MQTT connected. The log does not show the family used; the firmware prefers IPv4 when the station has it. |
+| Firmware update to the RC1 image | Yes, but on the previous firmware (`v1.2.0-rc.3`, no IPv6): the signed 2,560,000-byte image downloaded over IPv4 and verified, and the panel rebooted into RC1. This shows the update path, not the IPv6 code. |
+| Disconnect, reconnect, or address expiry | Not run. |
+
+Matrix rows not run on hardware yet: the IPv6-only networks, the RA after 15
+seconds, the failing-IPv4 fallback, the AAAA-only hostname, the
+Wi-Fi-failure and wrong-certificate cases, the screenshot preview over ULA,
+and the factory reset on an IPv6 deployment. The "dual-stack, A + AAAA" row is
+only partly covered: the panel showed both IPv6 address kinds, but the release
+host's AAAA behaviour was not exercised.
+
+Earlier, the same panel's first update attempts failed because the manifest URL
+arrived as a bare scheme, and then because the release host was blocked on the
+panel's network. Both were fixed in the network or the request path, not in the
+IPv6 code, and are recorded in the update button change.
+
 ## Hardware acceptance matrix
 
 Automated builds and host tests cannot establish router behavior, address
