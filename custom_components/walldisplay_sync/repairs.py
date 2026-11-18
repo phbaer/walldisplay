@@ -7,6 +7,8 @@ from homeassistant.components import mqtt
 from homeassistant.components.repairs import RepairsFlow, RepairsFlowResult
 from homeassistant.core import HomeAssistant
 
+from .runtime import async_publish_update
+
 
 class FirmwareUpdateRepairFlow(RepairsFlow):
     """Confirm and start an OTA update for one panel."""
@@ -39,24 +41,20 @@ class FirmwareUpdateRepairFlow(RepairsFlow):
                 None,
             )
             if runtime is not None:
-                async with runtime.update_lock:
-                    if runtime.update_running:
-                        return self.async_abort(
-                            reason="update_in_progress",
-                            description_placeholders=self.description_placeholders,
-                        )
-                    runtime.update_running = True
-                    runtime.update_target = str(self._data.get("latest_version", ""))
-                    try:
-                        await mqtt.async_publish(self.hass, f"{topic}/cmd/update", manifest_url, 1, False)
-                    except Exception as err:
-                        runtime.update_running = False
-                        runtime.update_target = ""
-                        self.description_placeholders["error_detail"] = str(err)
-                        return self.async_abort(
-                            reason="update_failed",
-                            description_placeholders=self.description_placeholders,
-                        )
+                try:
+                    started = await async_publish_update(
+                        self.hass, runtime, topic, manifest_url, str(self._data.get("latest_version", "")))
+                except Exception as err:
+                    self.description_placeholders["error_detail"] = str(err)
+                    return self.async_abort(
+                        reason="update_failed",
+                        description_placeholders=self.description_placeholders,
+                    )
+                if not started:
+                    return self.async_abort(
+                        reason="update_in_progress",
+                        description_placeholders=self.description_placeholders,
+                    )
             else:
                 await mqtt.async_publish(self.hass, f"{topic}/cmd/update", manifest_url, 1, False)
             return self.async_abort(
