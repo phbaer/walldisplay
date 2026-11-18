@@ -40,10 +40,10 @@ For advanced recovery, unpack the factory archive and flash its individual files
 
 ## Build and configuration
 
-Install ESP-IDF 6.0.x. Release and CI builds use the `espressif/idf:v6.1.1` container; local builds were last verified with 6.0.2, the version recorded in `dependencies.lock`. Adjust the path below to your installed version, then configure and flash:
+Install ESP-IDF 6.1.1, the version of the `espressif/idf:v6.1.1` container that release and CI builds use. The last local build verified in this repository was ESP-IDF 6.0.2; the dependency lock file records the component versions. Adjust the path below to your installed version, then configure and flash:
 
 ```sh
-source "$HOME/.espressif/v6.0.2/esp-idf/export.sh"
+source "$HOME/.espressif/v6.1.1/esp-idf/export.sh"
 cp config/panel_config.example.yaml config/panel_config.yaml
 # Edit Wi-Fi, MQTT, discovery, and the base topic.
 idf.py set-target esp32s3
@@ -135,7 +135,7 @@ matches whether a password was provided.
 
 1. **Prepare the panel and network.** Connect the panel's USB port, identify its serial port, and make sure it can reach the MQTT broker over the configured network. The target is the ESP32-S3 480×480 panel with 16 MB flash and octal PSRAM.
 2. **Create the build configuration.** Copy `config/panel_config.example.yaml` to `config/panel_config.yaml` and set the Wi-Fi SSID/password, MQTTS broker URI, broker credentials, Home Assistant discovery prefix, and a unique `homeassistant.base_topic`. Keep `mqtt.require_tls: true` unless the broker is on an isolated trusted LAN; use a CA PEM in `config/` when the broker certificate is not in the ESP-IDF bundle. Set the initial page layout under `display`. Keep local configuration files out of version control.
-3. **Flash a baseline.** With ESP-IDF 6.0.x activated, run:
+3. **Flash a baseline.** With ESP-IDF 6.1.1 activated, run:
 
    ```sh
    idf.py set-target esp32s3
