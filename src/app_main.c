@@ -137,11 +137,9 @@ static void restart_after(const char *reason) {
 /* Non-retained "cmd/<command>" messages. */
 static bool handle_command(const char *command, const char *payload) {
     if (strcmp(command, "update") == 0) {
+        /* ota_manager_request publishes the specific reason for a refusal. */
         const esp_err_t err = ota_manager_request(payload);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "Rejected OTA request: %s", esp_err_to_name(err));
-            publish_state("state/update", "{\"state\":\"error\",\"detail\":\"Invalid or busy update request\"}");
-        }
+        if (err != ESP_OK) ESP_LOGW(TAG, "Rejected OTA request: %s", esp_err_to_name(err));
         return true;
     }
     if (strcmp(command, "config/base_topic") == 0) {

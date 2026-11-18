@@ -3,9 +3,35 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Awaitable, Callable
 
+from homeassistant.components import mqtt
 from homeassistant.core import HomeAssistant
+
+# Resolves the newest signed release newer than the panel, or None when the
+# panel is current. Raises HomeAssistantError when the answer is unknown.
+FindUpdate = Callable[[], Awaitable[Any]]
+
+
+async def async_publish_update(hass: HomeAssistant, runtime: Any, topic: str, manifest_url: str, version: str) -> bool:
+    """Request an OTA install of manifest_url unless one is already running.
+
+    Shared by the Repairs flow and the Install Firmware Update button, so both
+    refuse duplicate requests while the panel reports queued, checking, or
+    installing. Returns False when a request is already running.
+    """
+    async with runtime.update_lock:
+        if runtime.update_running:
+            return False
+        runtime.update_running = True
+        runtime.update_target = version
+    try:
+        await mqtt.async_publish(hass, f"{topic}/cmd/update", manifest_url, 1, False)
+    except Exception:
+        runtime.update_running = False
+        runtime.update_target = ""
+        raise
+    return True
 
 
 @dataclass
@@ -19,6 +45,7 @@ class WallDisplayRuntime:
     update_running: bool = False
     update_target: str = ""
     platforms: list[Any] = field(default_factory=list)
+    find_update: FindUpdate | None = None
 
     @property
     def device_identifiers(self) -> set[tuple[str, str]]:

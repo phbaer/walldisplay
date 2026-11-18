@@ -13,6 +13,7 @@ from homeassistant.const import Platform
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
@@ -50,7 +51,7 @@ from .configuration import migrate_configuration
 from .runtime import WallDisplayRuntime
 from .device import async_setup_device_link
 from .artwork import ArtworkCache, async_register_cache, async_unregister_cache
-from .updates import async_latest_release, is_newer
+from .updates import FirmwareRelease, async_latest_release, is_newer
 
 _LOGGER = logging.getLogger(__name__)
 _PLATFORMS = [Platform.BUTTON, Platform.EVENT, Platform.SENSOR, Platform.IMAGE]
@@ -112,6 +113,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     update_issue_id = f"{_UPDATE_ISSUE_PREFIX}{entry.entry_id}"
     if not update_api_url:
         ir.async_delete_issue(hass, DOMAIN, update_issue_id)
+
+    async def find_update() -> FirmwareRelease | None:
+        """Return the newer signed release, or None when the panel is current.
+
+        Used by the Install Firmware Update button, which must report why an
+        update cannot be started instead of silently doing nothing.
+        """
+        if not current_version:
+            raise HomeAssistantError("The panel has not reported its firmware version yet")
+        if not update_api_url:
+            raise HomeAssistantError("Firmware update checks are disabled in the integration settings")
+        release = await async_latest_release(hass, update_api_url)
+        if release is None:
+            raise HomeAssistantError("The firmware release feed is unavailable; try again later")
+        return release if is_newer(current_version, release) else None
+
+    entry.runtime_data.find_update = find_update
 
     async def check_for_update(force: bool = False) -> None:
         nonlocal last_update_check
