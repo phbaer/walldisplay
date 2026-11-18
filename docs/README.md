@@ -24,6 +24,7 @@ repeating it. Documents are grouped by purpose:
 
 ## Explanation
 
+- [Threat model](explanation/threat-model.md): assets, actors, and the accepted setup access point decision.
 - [Hardware, display pipeline, and firmware updates](explanation/hardware-and-updates.md)
 - Architecture: the [README architecture section](../README.md#architecture).
 - Implementation notes with fixed release selections and verification status:

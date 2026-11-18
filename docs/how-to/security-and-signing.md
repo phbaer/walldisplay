@@ -1,5 +1,7 @@
 # Security configuration and firmware signing
 
+For what these settings protect against, and the accepted setup access point risks, see the [threat model](../explanation/threat-model.md).
+
 How to secure MQTT, the setup AP and portal, commands, screenshots, and OTA, and how to create and use the firmware signing key. Moved unchanged from the README section "Security and upgrading to 1.0.0"; the [README](../../README.md) remains the overview.
 
 This release changes operational defaults. Upgrade the firmware and the chosen synchronization path together; do not run both paths for a panel.
