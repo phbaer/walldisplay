@@ -20,10 +20,11 @@ an unconfigured panel's temporary portal connection tests.
 `network_client` shares address selection across MQTT (including portal probes),
 artwork, OTA, screenshots, About, and device diagnostics. It prefers IPv4 for
 outbound connections when present, with sequential IPv6 fallback on connection
-failure. On IPv6-only stations the order is reversed. `network_family_t` keeps
-the family that last connected: only an attempt that never connected moves to
-the other family, so a dropped MQTT session and later HTTP range requests start
-with the family that worked. IPv4 literals and bracketed IPv6 literals use only
+failure. On IPv6-only stations the order is reversed. Each destination keeps
+the family that last connected for ten minutes (a four-entry table keyed by host
+and port, with a mutex), replacing the earlier single HTTP value that was shared
+by all hosts. Only an attempt that never connected moves to the other family, and
+a failed attempt forgets its destination's family. Probes use no memory. IPv4 literals and bracketed IPv6 literals use only
 their own family. TLS URLs remain unchanged, preserving hostname verification,
 SNI, and existing CA/signature policy. Range headers survive OTA connection
 fallback; failed HTTP clients are cleaned up before retrying. Body validation

@@ -4,6 +4,7 @@
 #include "walldisplay/display_dimming.h"
 #include "walldisplay/ha_discovery.h"
 #include "walldisplay/mqtt_app.h"
+#include "walldisplay/network_client.h"
 #include "walldisplay/media_artwork.h"
 #include "walldisplay/ota_manager.h"
 #include "walldisplay/screenshot.h"
@@ -434,6 +435,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+    ESP_ERROR_CHECK(network_client_init());
     ESP_ERROR_CHECK(app_config_init());
     ESP_ERROR_CHECK(media_artwork_init());
     ESP_ERROR_CHECK(ota_manager_init(publish_runtime_topic));

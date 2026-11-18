@@ -29,7 +29,8 @@ typedef struct { char topic[MQTT_TX_TOPIC_MAX_LEN]; char payload[MQTT_TX_PAYLOAD
 static mqtt_receive_t s_rx;
 static char s_availability_topic[APP_TOPIC_MAX_LEN + 16];
 static QueueHandle_t s_tx_queue;
-static network_family_t s_family;
+/* The broker is one destination; its family memory survives reconnects. */
+static network_family_t s_family = {.remember = true};
 
 static void mqtt_tx_task(void *arg) {
     (void)arg;
@@ -52,11 +53,11 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             /* Only an attempt that never connected moves to the other family;
              * a dropped session reconnects over the family that worked. */
             if (event->error_handle && event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
-                network_family_result(&s_family, false);
+                network_family_result(&s_family, app_config_get()->mqtt_uri, false);
             }
             break;
         case MQTT_EVENT_CONNECTED:
-            network_family_result(&s_family, true);
+            network_family_result(&s_family, app_config_get()->mqtt_uri, true);
             ESP_LOGI(TAG, "MQTT connected");
             if (s_connected_cb != NULL) {
                 s_connected_cb(event->client, s_connected_ctx);

@@ -1,8 +1,10 @@
 #include "walldisplay/network_client.h"
 
+#include "esp_timer.h"
 #include "esp_transport_ssl.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "sdkconfig.h"
-#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -55,33 +57,162 @@ esp_err_t network_station_http_host(char *host, size_t size) {
     return length >= 0 && (size_t)length < size ? ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 
-static network_family_id_t literal_family(const char *uri) {
-    const char *host = uri == NULL ? NULL : strstr(uri, "://");
-    if (host == NULL) return NETWORK_FAMILY_UNKNOWN;
-    host += 3;
-    const size_t authority = strcspn(host, "/?#");
+/* Split a URI into the destination key "host:port" and its literal family.
+ * Returns false for URIs that are not http, https, mqtt, or mqtts. */
+static bool parse_destination(const char *uri, char *key, size_t key_size, network_family_id_t *literal) {
+    *literal = NETWORK_FAMILY_UNKNOWN;
+    const char *scheme_end = uri == NULL ? NULL : strstr(uri, "://");
+    if (scheme_end == NULL || scheme_end == uri) return false;
+    const size_t scheme_length = (size_t)(scheme_end - uri);
+    unsigned port = 0;
+    if (scheme_length == 4 && strncmp(uri, "http", 4) == 0) port = 80;
+    else if (scheme_length == 5 && strncmp(uri, "https", 5) == 0) port = 443;
+    else if (scheme_length == 4 && strncmp(uri, "mqtt", 4) == 0) port = 1883;
+    else if (scheme_length == 5 && strncmp(uri, "mqtts", 5) == 0) port = 8883;
+    else return false;
+
+    const char *authority = scheme_end + 3;
+    const size_t authority_length = strcspn(authority, "/?#");
     /* Skip optional userinfo; the host follows the last '@' of the authority. */
-    for (size_t i = authority; i > 0; --i) {
-        if (host[i - 1] == '@') { host += i; break; }
+    for (size_t i = authority_length; i > 0; --i) {
+        if (authority[i - 1] == '@') { authority += i; break; }
     }
-    if (host[0] == '[') return NETWORK_FAMILY_IPV6;
-    const size_t length = strcspn(host, ":/?#");
-    if (length == 0) return NETWORK_FAMILY_UNKNOWN;
-    /* Four dot-separated decimal fields; anything else is resolved as a name. */
-    unsigned dots = 0;
-    for (size_t i = 0; i < length; ++i) {
-        if (host[i] == '.') ++dots;
-        else if (host[i] < '0' || host[i] > '9') return NETWORK_FAMILY_UNKNOWN;
+    const size_t remaining = authority_length - (size_t)(authority - (scheme_end + 3));
+    const bool bracketed = authority[0] == '[';
+    size_t host_length;
+    if (bracketed) {
+        const char *close = memchr(authority, ']', remaining);
+        if (close == NULL) return false;
+        host_length = (size_t)(close - authority) + 1;
+    } else {
+        host_length = strcspn(authority, ":/?#");
     }
-    return dots == 3 ? NETWORK_FAMILY_IPV4 : NETWORK_FAMILY_UNKNOWN;
+    if (host_length == 0 || host_length >= 64) return false;
+
+    char host[64];
+    for (size_t i = 0; i < host_length; ++i) {
+        const char c = authority[i];
+        host[i] = (c >= 'A' && c <= 'Z') ? (char)(c + ('a' - 'A')) : c;
+    }
+    host[host_length] = '\0';
+
+    const char *after = authority + host_length;
+    if (after < authority + remaining && *after == ':') {
+        unsigned value = 0;
+        size_t digits = 0;
+        for (const char *p = after + 1; p < authority + remaining; ++p, ++digits) {
+            if (*p < '0' || *p > '9' || value > 6553) return false;
+            value = value * 10 + (unsigned)(*p - '0');
+        }
+        if (digits == 0 || value == 0 || value > 65535) return false;
+        port = value;
+    } else if (after < authority + remaining) {
+        return false;
+    }
+
+    if (bracketed) {
+        *literal = NETWORK_FAMILY_IPV6;
+    } else {
+        /* Four dot-separated decimal fields; anything else is resolved as a name. */
+        unsigned dots = 0;
+        bool numeric = true;
+        for (size_t i = 0; i < host_length; ++i) {
+            if (host[i] == '.') ++dots;
+            else if (host[i] < '0' || host[i] > '9') numeric = false;
+        }
+        if (numeric && dots == 3) *literal = NETWORK_FAMILY_IPV4;
+    }
+    return snprintf(key, key_size, "%s:%u", host, port) < (int)key_size;
 }
 
 static network_family_id_t other_family(network_family_id_t family) {
     return family == NETWORK_FAMILY_IPV4 ? NETWORK_FAMILY_IPV6 : NETWORK_FAMILY_IPV4;
 }
 
+/* Per-destination memory. A small table with least-recently-used replacement
+ * is enough: the panel talks to a broker, a release host, and a few artwork
+ * hosts. Entries expire, so a family that stops working is retried later. */
+#define FAMILY_MEMORY_SLOTS 4
+#define FAMILY_MEMORY_TTL_US (10LL * 60LL * 1000LL * 1000LL)
+
+typedef struct {
+    bool used;
+    char key[72];
+    uint8_t family;
+    int64_t stored_us;
+    uint32_t last_used;
+} family_memory_t;
+
+static family_memory_t s_memory[FAMILY_MEMORY_SLOTS];
+static uint32_t s_memory_tick;
+static SemaphoreHandle_t s_memory_lock;
+
+esp_err_t network_client_init(void) {
+    if (s_memory_lock == NULL) {
+        s_memory_lock = xSemaphoreCreateMutex();
+        if (s_memory_lock == NULL) return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+static network_family_id_t memory_get(const char *key) {
+    network_family_id_t family = NETWORK_FAMILY_UNKNOWN;
+    if (s_memory_lock == NULL) return family;
+    xSemaphoreTake(s_memory_lock, portMAX_DELAY);
+    const int64_t now = esp_timer_get_time();
+    for (size_t i = 0; i < FAMILY_MEMORY_SLOTS; ++i) {
+        family_memory_t *entry = &s_memory[i];
+        if (entry->used && strcmp(entry->key, key) == 0) {
+            if (now - entry->stored_us < FAMILY_MEMORY_TTL_US) {
+                family = (network_family_id_t)entry->family;
+                entry->last_used = ++s_memory_tick;
+            } else {
+                entry->used = false;
+            }
+            break;
+        }
+    }
+    xSemaphoreGive(s_memory_lock);
+    return family;
+}
+
+static void memory_set(const char *key, network_family_id_t family) {
+    if (s_memory_lock == NULL) return;
+    xSemaphoreTake(s_memory_lock, portMAX_DELAY);
+    family_memory_t *target = NULL;
+    for (size_t i = 0; i < FAMILY_MEMORY_SLOTS && target == NULL; ++i) {
+        if (s_memory[i].used && strcmp(s_memory[i].key, key) == 0) target = &s_memory[i];
+    }
+    for (size_t i = 0; i < FAMILY_MEMORY_SLOTS && target == NULL; ++i) {
+        if (!s_memory[i].used) target = &s_memory[i];
+    }
+    if (target == NULL) {
+        target = &s_memory[0];
+        for (size_t i = 1; i < FAMILY_MEMORY_SLOTS; ++i) {
+            if (s_memory[i].last_used < target->last_used) target = &s_memory[i];
+        }
+    }
+    target->used = true;
+    snprintf(target->key, sizeof(target->key), "%s", key);
+    target->family = (uint8_t)family;
+    target->stored_us = esp_timer_get_time();
+    target->last_used = ++s_memory_tick;
+    xSemaphoreGive(s_memory_lock);
+}
+
+static void memory_forget(const char *key) {
+    if (s_memory_lock == NULL) return;
+    xSemaphoreTake(s_memory_lock, portMAX_DELAY);
+    for (size_t i = 0; i < FAMILY_MEMORY_SLOTS; ++i) {
+        if (s_memory[i].used && strcmp(s_memory[i].key, key) == 0) s_memory[i].used = false;
+    }
+    xSemaphoreGive(s_memory_lock);
+}
+
 network_family_id_t network_family_select(network_family_t *state, const char *uri) {
-    const network_family_id_t literal = literal_family(uri);
+    char key[72];
+    network_family_id_t literal = NETWORK_FAMILY_UNKNOWN;
+    const bool keyed = parse_destination(uri, key, sizeof(key), &literal);
     const bool ipv4 = network_station_has_ipv4();
     esp_ip6_addr_t address;
     const bool ipv6 = network_get_ip6_address(station(), &address) == ESP_OK;
@@ -92,8 +223,11 @@ network_family_id_t network_family_select(network_family_t *state, const char *u
         family = literal;
     } else if (state->failed && !state->connected && state->current != NETWORK_FAMILY_UNKNOWN) {
         family = other_family((network_family_id_t)state->current);
-    } else if ((state->good == NETWORK_FAMILY_IPV4 && ipv4) || (state->good == NETWORK_FAMILY_IPV6 && ipv6)) {
-        family = (network_family_id_t)state->good;
+    } else if (state->remember && keyed) {
+        const network_family_id_t remembered = memory_get(key);
+        if ((remembered == NETWORK_FAMILY_IPV4 && ipv4) || (remembered == NETWORK_FAMILY_IPV6 && ipv6)) {
+            family = remembered;
+        }
     }
     state->literal = literal != NETWORK_FAMILY_UNKNOWN;
     state->current = (uint8_t)family;
@@ -102,14 +236,23 @@ network_family_id_t network_family_select(network_family_t *state, const char *u
     return family;
 }
 
-void network_family_result(network_family_t *state, bool connected) {
+void network_family_result(network_family_t *state, const char *uri, bool connected) {
     if (state->current == NETWORK_FAMILY_UNKNOWN) return;
+    if (!state->remember || state->literal) {
+        if (connected) { state->connected = true; state->failed = false; }
+        else if (!state->connected) state->failed = true;
+        return;
+    }
+    char key[72];
+    network_family_id_t literal = NETWORK_FAMILY_UNKNOWN;
+    if (!parse_destination(uri, key, sizeof(key), &literal)) return;
     if (connected) {
         state->connected = true;
         state->failed = false;
-        state->good = state->current;
+        memory_set(key, (network_family_id_t)state->current);
     } else if (!state->connected) {
         state->failed = true;
+        memory_forget(key);
     }
 }
 
@@ -117,16 +260,12 @@ bool network_family_has_alternative(const network_family_t *state) {
     return !state->literal;
 }
 
-/* HTTP peers share one remembered family: artwork and release hosts are
- * reached over the same station, and a wrong guess costs one attempt. */
-static _Atomic uint8_t s_http_good_family;
-
 esp_err_t network_http_open(const esp_http_client_config_t *config, const char *range,
                             esp_http_client_handle_t *client) {
     if (config == NULL || config->url == NULL || client == NULL) return ESP_ERR_INVALID_ARG;
     *client = NULL;
     esp_err_t err = ESP_FAIL;
-    network_family_t state = {.good = atomic_load(&s_http_good_family)};
+    network_family_t state = {.remember = true};
     for (int attempt = 0; attempt < 2; ++attempt) {
         esp_http_client_config_t candidate = *config;
         candidate.addr_type = network_family_select(&state, config->url) == NETWORK_FAMILY_IPV4
@@ -139,9 +278,8 @@ esp_err_t network_http_open(const esp_http_client_config_t *config, const char *
             return err;
         }
         err = esp_http_client_open(handle, 0);
-        network_family_result(&state, err == ESP_OK);
+        network_family_result(&state, config->url, err == ESP_OK);
         if (err == ESP_OK) {
-            atomic_store(&s_http_good_family, state.good);
             *client = handle;
             return ESP_OK;
         }

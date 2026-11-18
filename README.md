@@ -96,11 +96,14 @@ retained. `ipv6_linklocal` remains a separate diagnostic.
 MQTT, artwork HTTP(S), and signed OTA prefer IPv4 when the station has IPv4,
 otherwise IPv6. A connection attempt that never connects moves the next attempt
 to the other family: HTTP clients retry immediately, MQTT on its next
-reconnect. The family that last connected is remembered and tried first, so a
-dropped MQTT session reconnects over the family that worked and later OTA range
-requests do not wait for a dead family again. A remembered family is ignored
-once the station no longer has an address of that family. IPv4 literals and
-bracketed IPv6 literals use only their own family.
+reconnect. The family that last connected to each destination (host and port)
+is remembered for ten minutes, so the broker, the release host, and each artwork
+host keep their own choice: a success on one host never changes another. A
+failed attempt forgets its destination's remembered family, so the next attempt
+starts from the default again. A remembered family is ignored once the station
+no longer has an address of that family. Dropped MQTT sessions reconnect over
+the family that worked, and later OTA range requests do not wait for a dead
+family. IPv4 literals and bracketed IPv6 literals use only their own family.
 The portal MQTT test allows up to 30 seconds for two connection attempts and
 fails immediately on broker rejection. IPv6 literals in URIs must use brackets,
 for example `mqtts://[fd12:3456:789a::10]:8883`; DNS hostnames matching TLS
