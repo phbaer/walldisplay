@@ -85,10 +85,6 @@ static void publish_status(const char *state, const char *detail, const char *ve
     cJSON_Delete(root);
 }
 
-static bool is_https_url(const char *url) {
-    return url != NULL && strncmp(url, "https://", strlen("https://")) == 0;
-}
-
 static bool decode_sha256(const char *hex, uint8_t output[32]) {
     if (hex == NULL || strlen(hex) != 64) {
         return false;
@@ -156,7 +152,7 @@ static esp_err_t parse_manifest(const char *json, ota_manifest_t *manifest) {
 
     if (cJSON_IsString(url) && cJSON_IsString(sha256) && cJSON_IsNumber(size) &&
         cJSON_IsString(version) && cJSON_IsString(target) && strcmp(target->valuestring, "esp32s3") == 0 &&
-        is_https_url(url->valuestring) && size->valuedouble > 0 && size->valuedouble <= UINT32_MAX &&
+        update_manifest_url_valid(url->valuestring) && size->valuedouble > 0 && size->valuedouble <= UINT32_MAX &&
         size->valuedouble == (double) (size_t) size->valuedouble && strlen(url->valuestring) < sizeof(manifest->firmware_url) &&
         strlen(version->valuestring) < sizeof(manifest->version) &&
         decode_sha256(sha256->valuestring, manifest->sha256)) {
@@ -350,12 +346,16 @@ esp_err_t ota_manager_request(const char *manifest_url) {
         publish_status("error", "OTA requires a signed-app verification build", NULL);
         return ESP_ERR_NOT_SUPPORTED;
     }
-    if (s_request_queue == NULL || !is_https_url(manifest_url) || strlen(manifest_url) >= OTA_URL_MAX_LEN) {
+    if (s_request_queue == NULL || !update_manifest_url_valid(manifest_url) || strlen(manifest_url) >= OTA_URL_MAX_LEN) {
+        /* A bare scheme or a truncated paste is a request error, not a download
+         * failure; say so, so the panel does not look stuck. */
+        publish_status("error", "Update request has no complete manifest URL", NULL);
         return ESP_ERR_INVALID_ARG;
     }
     ota_request_t request = {0};
     strlcpy(request.manifest_url, manifest_url, sizeof(request.manifest_url));
     if (xQueueSend(s_request_queue, &request, 0) != pdTRUE) {
+        publish_status("error", "An update is already in progress", NULL);
         return ESP_ERR_INVALID_STATE;
     }
     ESP_ERROR_CHECK_WITHOUT_ABORT(ui_show_update_screen());
