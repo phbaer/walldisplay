@@ -297,7 +297,7 @@ static void mqtt_probe_handler(void *arg, esp_event_base_t base, int32_t id, voi
         }
         if (event && event->error_handle && event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT &&
             ++probe->transport_failures < 2 && network_family_has_alternative(&probe->family)) {
-            network_family_result(&probe->family, false);
+            network_family_result(&probe->family, probe->uri, false);
         } else {
             probe->failed = true;
             xEventGroupSetBits(probe->events, BIT1);

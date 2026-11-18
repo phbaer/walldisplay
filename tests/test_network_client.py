@@ -60,6 +60,7 @@ typedef enum { ESP_TLS_AF_INET, ESP_TLS_AF_INET6 } esp_tls_addr_family_t;
 void esp_transport_ssl_set_addr_family(esp_transport_handle_t transport, esp_tls_addr_family_t family);
 ''',
         'sdkconfig.h': '#define CONFIG_LWIP_IPV6_NUM_ADDRESSES 4\n',
+        'esp_timer.h': '#pragma once\n#include <stdint.h>\nint64_t esp_timer_get_time(void);\n',
     }
     for name, content in headers.items():
         (tmp_path / name).write_text(content)
@@ -73,6 +74,8 @@ static esp_netif_t netif;
 static bool present = true, up = true;
 static unsigned ipv4;
 static esp_ip6_addr_t addresses[4];
+static int64_t now_us;
+int64_t esp_timer_get_time(void) { return now_us; }
 static int count;
 static esp_ip6_addr_type_t types[4];
 esp_netif_t *esp_netif_get_handle_from_ifkey(const char *key) {
@@ -112,6 +115,7 @@ void esp_transport_ssl_set_addr_family(esp_transport_handle_t c, esp_tls_addr_fa
 static void reset_http(void) { initialized = cleaned = opened = failures = 0; allocation_failure = header_failure = false; }
 int main(void) {
     char host[48]; esp_ip6_addr_t result;
+    assert(network_client_init() == ESP_OK);
     assert(!network_station_ready());
     assert(network_station_http_host(host, sizeof(host)) == ESP_ERR_INVALID_STATE);
     count = 1; addresses[0].addr[3] = 0; types[0] = ESP_IP6_ADDR_IS_LINK_LOCAL;
@@ -131,36 +135,46 @@ int main(void) {
     esp_http_client_config_t config = {.url = "https://release.example/image", .timeout_ms = 30000,
         .crt_bundle_attach = &netif, .cert_pem = "trusted CA"};
     esp_http_client_handle_t client;
-    reset_http(); failures = 1;
-    assert(network_http_open(&config, "bytes=10-20", &client) == ESP_OK);
-    assert(initialized == 2 && opened == 2 && cleaned == 1 && client == &clients[1]);
-    assert(clients[0].config.addr_type == HTTP_ADDR_TYPE_INET && clients[1].config.addr_type == HTTP_ADDR_TYPE_INET6);
-    for (int i = 0; i < 2; ++i) {
-        assert(clients[i].config.url == config.url && clients[i].config.cert_pem == config.cert_pem);
-        assert(clients[i].config.crt_bundle_attach == config.crt_bundle_attach);
-        assert(!clients[i].config.skip_cert_common_name_check && clients[i].config.timeout_ms == 30000);
-        assert(strcmp(clients[i].range, "bytes=10-20") == 0);
-    }
+    /* The remembered family is per destination and expires after ten minutes. */
+    reset_http(); now_us = 0; ipv4 = 73; count = 3; addresses[0].addr[3] = 0; addresses[1].addr[3] = 1;
+    types[0] = ESP_IP6_ADDR_IS_LINK_LOCAL; types[1] = ESP_IP6_ADDR_IS_GLOBAL;
+    config.url = "https://release.example/image"; failures = 1;
+    assert(network_http_open(&config, NULL, &client) == ESP_OK && clients[1].config.addr_type == HTTP_ADDR_TYPE_INET6);
     esp_http_client_cleanup(client);
-    /* The family that connected is tried first by the next request. */
-    reset_http();
-    assert(network_http_open(&config, "bytes=21-30", &client) == ESP_OK && initialized == 1);
-    assert(clients[0].config.addr_type == HTTP_ADDR_TYPE_INET6);
+    /* A different destination is not affected by the first host's memory. */
+    reset_http(); config.url = "https://artwork.example/cover.jpg"; failures = 0;
+    assert(network_http_open(&config, NULL, &client) == ESP_OK && clients[0].config.addr_type == HTTP_ADDR_TYPE_INET);
     esp_http_client_cleanup(client);
-    reset_http(); ipv4 = 0; failures = 1;
-    assert(network_http_open(&config, NULL, &client) == ESP_OK);
-    assert(clients[0].config.addr_type == HTTP_ADDR_TYPE_INET6 && clients[1].config.addr_type == HTTP_ADDR_TYPE_INET);
+    /* The same host, another port, is a different destination. */
+    reset_http(); config.url = "https://release.example:8443/image"; failures = 0;
+    assert(network_http_open(&config, NULL, &client) == ESP_OK && clients[0].config.addr_type == HTTP_ADDR_TYPE_INET);
     esp_http_client_cleanup(client);
-    reset_http(); failures = 2;
+    /* Within the window the first host keeps its family. */
+    reset_http(); config.url = "https://release.example/image"; failures = 0; now_us = 5LL * 60 * 1000000;
+    assert(network_http_open(&config, NULL, &client) == ESP_OK && clients[0].config.addr_type == HTTP_ADDR_TYPE_INET6);
+    esp_http_client_cleanup(client);
+    /* A success refreshes the entry; ten minutes after the last one it has expired. */
+    reset_http(); now_us = 16LL * 60 * 1000000;
+    assert(network_http_open(&config, NULL, &client) == ESP_OK && clients[0].config.addr_type == HTTP_ADDR_TYPE_INET);
+    esp_http_client_cleanup(client);
+    /* A remembered family that stopped being present is not used. */
+    reset_http(); now_us = 16LL * 60 * 1000000 + 1; failures = 1; ipv4 = 73;
+    assert(network_http_open(&config, NULL, &client) == ESP_OK && clients[1].config.addr_type == HTTP_ADDR_TYPE_INET6);
+    esp_http_client_cleanup(client);
+    reset_http(); ipv4 = 0; now_us = 17LL * 60 * 1000000;
+    assert(network_http_open(&config, NULL, &client) == ESP_OK && clients[0].config.addr_type == HTTP_ADDR_TYPE_INET6);
+    esp_http_client_cleanup(client);
+    /* Two failures end the attempt and leave no client behind. */
+    reset_http(); failures = 2; ipv4 = 73; now_us = 30LL * 60 * 1000000;
     assert(network_http_open(&config, NULL, &client) == ESP_FAIL && client == NULL && cleaned == 2);
     reset_http(); allocation_failure = true;
     assert(network_http_open(&config, NULL, &client) == ESP_ERR_NO_MEM && opened == 0);
     reset_http(); header_failure = true;
     assert(network_http_open(&config, "bytes=10-20", &client) == ESP_FAIL && initialized == 1 && cleaned == 1 && opened == 0);
-    reset_http(); config.url = "https://[fd12::1]/image"; ipv4 = 73; failures = 1;
+    /* Literals use their own family and have no alternative. */
+    reset_http(); config.url = "https://[fd12::1]/image"; failures = 1;
     assert(network_http_open(&config, NULL, &client) == ESP_FAIL && initialized == 1 && cleaned == 1);
     assert(clients[0].config.addr_type == HTTP_ADDR_TYPE_INET6);
-
     reset_http(); config.url = "http://user@192.168.1.20:8123/art"; failures = 1;
     assert(network_http_open(&config, NULL, &client) == ESP_FAIL && initialized == 1 && cleaned == 1);
     assert(clients[0].config.addr_type == HTTP_ADDR_TYPE_INET);
@@ -168,45 +182,51 @@ int main(void) {
     reset_http(); config.url = "http://10.example/art"; failures = 2;
     assert(network_http_open(&config, NULL, &client) == ESP_FAIL && initialized == 2);
 
-    network_family_t mqtt = {0};
+    /* MQTT: a dropped session keeps the family; a failed attempt moves once. */
+    network_family_t mqtt = {.remember = true};
+    ipv4 = 73; now_us = 0;
     network_mqtt_before_connect(&netif, "mqtts://broker.example", &mqtt);
     assert(strcmp(selected_scheme, "mqtts") == 0 && selected_family == ESP_TLS_AF_INET);
-    /* A dropped established session reconnects over the same family. */
-    network_family_result(&mqtt, true);
-    network_family_result(&mqtt, false);
+    network_family_result(&mqtt, "mqtts://broker.example", true);
+    network_family_result(&mqtt, "mqtts://broker.example", false);
     network_mqtt_before_connect(&netif, "mqtts://broker.example", &mqtt);
     assert(selected_family == ESP_TLS_AF_INET);
-    /* A failed attempt moves once, however many errors it reports. */
-    network_family_result(&mqtt, false);
-    network_family_result(&mqtt, false);
+    network_family_result(&mqtt, "mqtts://broker.example", false);
+    network_family_result(&mqtt, "mqtts://broker.example", false);
     network_mqtt_before_connect(&netif, "mqtts://broker.example", &mqtt);
     assert(selected_family == ESP_TLS_AF_INET6);
-    network_family_result(&mqtt, false);
-    network_mqtt_before_connect(&netif, "mqtts://broker.example", &mqtt);
-    assert(selected_family == ESP_TLS_AF_INET);
-    /* A working fallback is kept, also across broker rejections. */
-    network_family_result(&mqtt, false);
-    network_mqtt_before_connect(&netif, "mqtts://broker.example", &mqtt);
-    network_family_result(&mqtt, true);
-    network_mqtt_before_connect(&netif, "mqtts://broker.example", &mqtt);
+    network_family_result(&mqtt, "mqtts://broker.example", true);
     network_mqtt_before_connect(&netif, "mqtts://broker.example", &mqtt);
     assert(selected_family == ESP_TLS_AF_INET6);
-    /* A remembered family that lost its address is not used. */
-    count = 1;
-    network_mqtt_before_connect(&netif, "mqtts://broker.example", &mqtt);
+    /* The broker's memory does not change the release host's family. */
+    network_family_t other = {.remember = true};
+    network_mqtt_before_connect(&netif, "mqtts://broker.example:8883", &other);
+    assert(selected_family == ESP_TLS_AF_INET6);
+    network_mqtt_before_connect(&netif, "mqtts://other.example", &other);
     assert(selected_family == ESP_TLS_AF_INET);
-    count = 3;
-    network_family_t fresh = {0};
+    /* A probe never reads or writes the memory. */
+    network_family_t probe = {.remember = false};
+    network_mqtt_before_connect(&netif, "mqtts://broker.example", &probe);
+    assert(selected_family == ESP_TLS_AF_INET);
+    network_family_result(&probe, "mqtts://broker.example", false);
+    network_mqtt_before_connect(&netif, "mqtts://broker.example", &probe);
+    assert(selected_family == ESP_TLS_AF_INET6);
+    network_family_t after_probe = {.remember = true};
+    network_mqtt_before_connect(&netif, "mqtts://broker.example", &after_probe);
+    assert(selected_family == ESP_TLS_AF_INET6);
+    /* Literal brokers: one family, no alternative. */
+    network_family_t fresh = {.remember = true};
     ipv4 = 0; network_mqtt_before_connect(&netif, "mqtt://broker.example", &fresh);
     assert(strcmp(selected_scheme, "mqtt") == 0 && selected_family == ESP_TLS_AF_INET6);
-    ipv4 = 73; network_family_result(&fresh, false);
+    ipv4 = 73; network_family_result(&fresh, "mqtt://broker.example", false);
     network_mqtt_before_connect(&netif, "mqtts://[fd12::1]:8883", &fresh);
     assert(selected_family == ESP_TLS_AF_INET6 && !network_family_has_alternative(&fresh));
-    network_family_result(&fresh, false);
+    network_family_result(&fresh, "mqtts://[fd12::1]:8883", false);
     network_mqtt_before_connect(&netif, "mqtt://192.168.1.10:1883", &fresh);
     assert(selected_family == ESP_TLS_AF_INET && !network_family_has_alternative(&fresh));
-    network_family_result(&fresh, false);
-    network_mqtt_before_connect(&netif, "mqtt://192.168.1.10:1883", &fresh);
+    /* Unknown schemes never touch the memory. */
+    network_family_t odd = {.remember = true};
+    network_mqtt_before_connect(&netif, "ftp://broker.example", &odd);
     assert(selected_family == ESP_TLS_AF_INET);
     return 0;
 }
@@ -214,7 +234,7 @@ int main(void) {
     code = tmp_path / 'network.c'
     code.write_text(harness)
     executable = tmp_path / 'network'
-    subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-I'+str(tmp_path), '-I'+str(ROOT/'include'),
+    subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-I'+str(tmp_path), '-I'+str(ROOT/'include'), '-I'+str(ROOT/'tests/stubs'),
                     str(ROOT/'src/network_client.c'), str(code), '-o', str(executable)], check=True)
     subprocess.run([str(executable)], check=True)
 

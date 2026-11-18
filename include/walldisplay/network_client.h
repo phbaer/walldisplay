@@ -23,32 +23,41 @@ typedef enum {
     NETWORK_FAMILY_IPV6,
 } network_family_id_t;
 
-/** Address-family choice for one logical peer. Zero-initialize before use.
- * The family that last connected is kept for later attempts, so a dropped
- * session or a later request starts where the previous one succeeded. Only a
- * connection attempt that never connected moves the next attempt to the other
- * family. IPv4 and bracketed IPv6 literals always use their own family. */
+/** Prepare the destination memory. Call once before the first connection. */
+esp_err_t network_client_init(void);
+
+/** Address-family state for one connection sequence (for example one HTTP
+ * request with its retry, or one MQTT client). Zero-initialize before use.
+ *
+ * The family that last connected to a destination (host and port) is
+ * remembered for ten minutes, separately for each destination. A destination
+ * whose remembered family failed is forgotten, so the next attempt starts from
+ * the default again. Set remember to false for probes that must not change
+ * what later connections use. */
 typedef struct {
-    uint8_t good;      /* network_family_id_t that last connected */
     uint8_t current;   /* network_family_id_t of the running attempt */
     bool failed;       /* the running attempt failed before connecting */
     bool connected;    /* the running attempt connected */
-    bool literal;      /* the URI allows only one family */
+    bool literal;      /* the URI is an address literal: one family only */
+    bool remember;     /* read and update the per-destination memory */
 } network_family_t;
 
-/** Start a connection attempt to uri and return the family to use. */
+/** Start a connection attempt to uri and return the family to use. Preference:
+ * an address literal's own family; after a failed attempt the other family;
+ * otherwise the remembered family if the station still has it; otherwise IPv4
+ * when present, else IPv6. */
 network_family_id_t network_family_select(network_family_t *state, const char *uri);
 /** Report the outcome of the attempt started by network_family_select().
- * A failure reported after the attempt connected is a dropped session and
- * does not change the family. Repeated reports for one attempt are harmless. */
-void network_family_result(network_family_t *state, bool connected);
-/** False when the last selected URI is an address literal. */
+ * A failure reported after the attempt connected is a dropped session: it
+ * does not forget the destination's family. Repeated reports are harmless. */
+void network_family_result(network_family_t *state, const char *uri, bool connected);
+/** False when the URI is an address literal and no other family can be tried. */
 bool network_family_has_alternative(const network_family_t *state);
 
 /** Open a GET, retrying the other address family on connection failure.
- * The family that last connected is tried first on later calls. The caller
- * owns the returned client on success. TLS configuration and the URL hostname
- * are preserved. Optional Range is applied to both attempts.
+ * The family that last connected to the URL's destination is tried first. The
+ * caller owns the returned client on success. TLS configuration and the URL
+ * hostname are preserved. Optional Range is applied to both attempts.
  */
 esp_err_t network_http_open(const esp_http_client_config_t *config, const char *range,
                             esp_http_client_handle_t *client);
