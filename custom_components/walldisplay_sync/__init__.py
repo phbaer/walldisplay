@@ -83,11 +83,18 @@ def _artwork_url(hass: HomeAssistant, value: Any) -> str:
 
 
 def _browse_tree(response: Any, entity_id: str) -> dict[str, Any]:
-    """Extract the selected player's BrowseMedia response from HA service data."""
-    if not isinstance(response, dict):
-        return {}
-    tree = response.get(entity_id, response)
-    return tree if isinstance(tree, dict) else {}
+    """Extract and normalize the selected player's BrowseMedia service result."""
+    tree = response.get(entity_id, response) if isinstance(response, dict) else response
+    if isinstance(tree, dict):
+        return tree
+    # Entity services return BrowseMedia instances; the media_player service
+    # response is keyed by entity_id and these objects expose their wire form
+    # through as_dict().
+    as_dict = getattr(tree, "as_dict", None)
+    if callable(as_dict):
+        normalized = as_dict()
+        return normalized if isinstance(normalized, dict) else {}
+    return {}
 
 
 def _truncate_utf8(value: str, limit: int) -> str:

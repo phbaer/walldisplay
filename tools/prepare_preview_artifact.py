@@ -57,17 +57,26 @@ def event_matches(run: dict, pr_number: int, source_sha: str) -> bool:
 
 
 def find_run(server: str, repo: str, token: str, pr_number: int, source_sha: str) -> dict | None:
-    data = json.loads(request_bytes(
-        f"{server}/api/v1/repos/{repo}/actions/runs?limit=100", token, 4 * 1024 * 1024
-    ))
-    runs = data.get("workflow_runs", []) if isinstance(data, dict) else data
-    if not isinstance(runs, list):
-        raise RuntimeError("Forgejo returned an invalid Actions run list")
-    matches = [run for run in runs if isinstance(run, dict)
-               and event_matches(run, pr_number, source_sha)]
-    if not matches:
-        return None
-    return max(matches, key=lambda run: (run.get("index_in_repo", 0), run.get("id", 0)))
+    # Keep each response small: Forgejo includes the repository and event payload
+    # in every Actions run record, so a large limit can exceed our body bound.
+    page_size = 10
+    for page in range(1, 101):
+        data = json.loads(request_bytes(
+            f"{server}/api/v1/repos/{repo}/actions/runs?limit={page_size}&page={page}",
+            token, 1024 * 1024,
+        ))
+        runs = data.get("workflow_runs", []) if isinstance(data, dict) else data
+        if not isinstance(runs, list):
+            raise RuntimeError("Forgejo returned an invalid Actions run list")
+        matches = [run for run in runs if isinstance(run, dict)
+                   and event_matches(run, pr_number, source_sha)]
+        if matches:
+            # Forgejo lists newest runs first; the first page containing an
+            # exact PR/head match therefore contains the newest matching run.
+            return max(matches, key=lambda run: (run.get("index_in_repo", 0), run.get("id", 0)))
+        if len(runs) < page_size:
+            return None
+    return None
 
 
 def find_artifact(server: str, repo: str, token: str, run_id: int) -> dict | None:

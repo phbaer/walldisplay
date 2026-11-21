@@ -1568,21 +1568,21 @@ actions:
                       payload: >-
                         {%- set response = media_browse_response | default({}, true) -%}
                         {%- set tree = response.get(media_entity, response) if response is mapping else {} -%}
-                        {%- set children = tree.get('children', []) if tree is mapping else [] -%}
+                        {%- set children = tree.get('children', []) if tree is mapping else (tree.children | default([], true)) -%}
                         {%- set request = browse_request -%}
                         {%- set offset = [0, request.get('offset', 0) | int(0)] | max -%}
                         {%- set available = namespace(items=[]) -%}
                         {%- for item in children -%}
-                          {%- set item_title = item.get('title', '') if item is mapping else '' -%}
-                          {%- set item_type = item.get('media_content_type', '') if item is mapping else '' -%}
-                          {%- set item_id = item.get('media_content_id', '') if item is mapping else '' -%}
+                          {%- set item_title = item.get('title', '') if item is mapping else (item.title | default('')) -%}
+                          {%- set item_type = item.get('media_content_type', '') if item is mapping else (item.media_content_type | default('')) -%}
+                          {%- set item_id = item.get('media_content_id', '') if item is mapping else (item.media_content_id | default('')) -%}
                           {%- if item_title is string and item_title and item_type is string and item_type and item_type | length <= 64 and item_id is string and item_id and item_id | length <= 256 -%}
                             {%- set candidate = {
                               'title': item_title[:79],
                               'media_content_type': item_type,
                               'media_content_id': item_id,
-                              'can_expand': item.get('can_expand', false) | bool,
-                              'can_play': item.get('can_play', false) | bool
+                              'can_expand': (item.get('can_expand', false) if item is mapping else (item.can_expand | default(false))) | bool,
+                              'can_play': (item.get('can_play', false) if item is mapping else (item.can_play | default(false))) | bool
                             } -%}
                             {%- if candidate | tojson | length <= 1400 -%}
                               {%- set available.items = available.items + [candidate] -%}
@@ -1592,7 +1592,7 @@ actions:
                         {%- set result = namespace(items=[], full=false) -%}
                         {%- for item in available.items[offset:offset + 8] -%}
                           {%- set trial = {
-                            'title': (tree.get('title', 'Browse media') | string)[:79] if tree is mapping else 'Browse media',
+                            'title': ((tree.get('title', 'Browse media') if tree is mapping else (tree.title | default('Browse media'))) | string)[:79],
                             'offset': offset,
                             'total': available.items | length,
                             'items': result.items + [item]

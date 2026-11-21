@@ -39,7 +39,7 @@ Media commands are `cmd/media/previous`, `play_pause`, `next`, `power_off`, `vol
 
 ### Media browsing
 
-The Browse control opens the media browser while keeping the transport controls, volume, power control, and favourites visible. The panel requests the root with `{"offset":0}` and sends navigation requests with the current `media_content_type`, `media_content_id`, and an `offset`. Each request uses non-retained `<base>/cmd/media/browse`; the selected synchronization path calls `media_player.browse_media` for its configured media player and publishes a non-retained response to `<base>/set/media/browse`:
+The Browse control opens the media browser while keeping the transport controls, volume, power control, and favourites visible. The panel requests the root with `{"offset":0}` and sends navigation requests with the current `media_content_type`, `media_content_id`, and an `offset`. Each request uses non-retained `<base>/cmd/media/browse`; the selected synchronization path calls `media_player.browse_media` for its configured media player and publishes a non-retained response to `<base>/set/media/browse`. Both paths normalize Home Assistant results whether returned as mappings or `BrowseMedia` objects. The response format is:
 
 ```json
 {"title":"Albums","offset":0,"total":3,"items":[{"title":"Album","media_content_type":"album","media_content_id":"42","can_expand":true,"can_play":true}]}
