@@ -31,7 +31,7 @@ class Publisher:
             detail = error.read().decode('utf-8', 'replace')
             raise RuntimeError(f'Forgejo API {method} {path} failed ({error.code}): {detail}') from error
 
-    def release(self, tag, title, notes, prerelease):
+    def release(self, tag, title, notes, prerelease, target_commitish=None):
         path = f'/repos/{self.repo}/releases/tags/{quote(tag, safe="")}'
         current = self.request('GET', path)
         if current is not None:
@@ -40,8 +40,11 @@ class Publisher:
             if not current.get('draft') or firmware_assets:
                 raise RuntimeError('A published or firmware-populated release already exists; use a new tag')
             return current['id']
-        payload = json.dumps({'draft': True, 'name': title, 'body': notes,
-                              'prerelease': prerelease, 'tag_name': tag}).encode()
+        release_data = {'draft': True, 'name': title, 'body': notes,
+                        'prerelease': prerelease, 'tag_name': tag}
+        if target_commitish:
+            release_data['target_commitish'] = target_commitish
+        payload = json.dumps(release_data).encode()
         created = self.request('POST', f'/repos/{self.repo}/releases', payload)
         return created['id']
 
@@ -69,10 +72,12 @@ def main():
     parser.add_argument('--title', required=True)
     parser.add_argument('--notes-file', type=Path, required=True)
     parser.add_argument('--prerelease', action='store_true')
+    parser.add_argument('--target-commitish', help='Commit to create a new release tag from')
     parser.add_argument('--release-dir', type=Path, required=True)
     args = parser.parse_args()
     publisher = Publisher(args.server, args.repo, args.token)
-    release_id = publisher.release(args.tag, args.title, args.notes_file.read_text(), args.prerelease)
+    release_id = publisher.release(args.tag, args.title, args.notes_file.read_text(),
+                                   args.prerelease, args.target_commitish)
     for path in sorted(args.release_dir.iterdir()):
         if path.is_file():
             publisher.upload(release_id, path)

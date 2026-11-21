@@ -38,7 +38,7 @@ def select(tag=''):
             'prerelease': str(bool(tag and '-' in tag)).lower()}
 
 
-def package(version, server, repo, build=Path('build'), dist=Path('dist')):
+def package(version, server, repo, build=Path('build'), dist=Path('dist'), source_sha=None):
     # Never mix artifacts from different builds or accidentally publish stale files.
     dist.mkdir(exist_ok=False)
     image = build / 'walldisplay.bin'
@@ -66,7 +66,7 @@ def package(version, server, repo, build=Path('build'), dist=Path('dist')):
             archive.add(source, arcname=target)
     metadata = {'version': version, 'target': 'esp32s3',
                 'sha256': hashlib.sha256(image.read_bytes()).hexdigest(),
-                'size': image.stat().st_size, 'build': git('rev-parse', 'HEAD')}
+                'size': image.stat().st_size, 'build': source_sha or git('rev-parse', 'HEAD')}
     if version.startswith('v'):
         validate_tag(version)
         metadata['url'] = f'{server.rstrip("/")}/{repo}/releases/download/{version}/{name}.bin'
@@ -123,6 +123,7 @@ def main():
     parser.add_argument('--platform', choices=['forgejo', 'github'])
     parser.add_argument('--server', default='')
     parser.add_argument('--repo', default='')
+    parser.add_argument('--source-sha', help='Source commit to record in the manifest instead of HEAD')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--recover-draft', action='store_true')
     args = parser.parse_args()
@@ -132,7 +133,7 @@ def main():
             for key, value in values.items():
                 output.write(f'{key}={value}\n')
     elif args.action == 'package':
-        package(args.version, args.server, args.repo)
+        package(args.version, args.server, args.repo, source_sha=args.source_sha)
     else:
         preflight(args.platform, args.server, args.repo, args.tag, args.recover_draft)
 

@@ -50,12 +50,12 @@ class FirmwareReleaseTests(unittest.TestCase):
                             Path(command[command.index('--output') + 1]).write_bytes(b'factory image')
                         merge.side_effect = create_factory
                         with patch.object(release.shutil, 'which', return_value='esptool'):
-                            release.package('v1.0.0-rc.1', 'https://forge.example', 'owner/repo')
+                            release.package('v1.0.0-rc.1', 'https://forge.example', 'owner/repo', source_sha='preview-commit')
                             release.package('dev-123', '', '', dist=Path('dev-dist'))
                         self.assertEqual(merge.call_count, 2)
                         self.assertIn('merge-bin', merge.call_args_list[0].args[0])
                 metadata = json.loads(Path('dist/walldisplay-v1.0.0-rc.1.json').read_text())
-                self.assertEqual(metadata['build'], 'actual-tag-sha')
+                self.assertEqual(metadata['build'], 'preview-commit')
                 self.assertEqual(metadata['sha256'], hashlib.sha256(b'final signed image').hexdigest())
                 self.assertEqual(metadata['size'], len(b'final signed image'))
                 self.assertIn('/releases/download/v1.0.0-rc.1/', metadata['url'])

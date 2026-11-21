@@ -11,6 +11,21 @@ spec.loader.exec_module(publisher_module)
 
 
 class PublishForgejoReleaseTests(unittest.TestCase):
+    def test_creates_release_at_selected_commit(self):
+        publisher = publisher_module.Publisher('https://git.baer.one', 'owner/repo', 'token')
+        requests = []
+
+        def request(method, path, body=None, content_type='application/json'):
+            requests.append((method, path, body, content_type))
+            if method == 'GET':
+                return None
+            return {'id': 9}
+
+        publisher.request = request
+        self.assertEqual(publisher.release('v1.4.0-pr.30.123', 'Title', 'Notes', True, 'a' * 40), 9)
+        payload = requests[1][2].decode()
+        self.assertIn('"target_commitish": "' + 'a' * 40 + '"', payload)
+
     def test_reuses_empty_draft_and_uploads_then_publishes(self):
         publisher = publisher_module.Publisher('https://git.baer.one', 'owner/repo', 'token')
         requests = []

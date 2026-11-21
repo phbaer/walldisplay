@@ -58,6 +58,8 @@ _PLATFORMS = [Platform.BUTTON, Platform.EVENT, Platform.SENSOR, Platform.IMAGE]
 _UPDATE_ISSUE_PREFIX = "firmware_update_"
 _UPDATE_CHECK_INTERVAL = timedelta(hours=6)
 _UPDATE_RETRY_INTERVAL = timedelta(minutes=5)
+_MEDIA_BROWSE_PAGE_SIZE = 8
+_MEDIA_BROWSE_RESPONSE_LIMIT = 1800
 
 
 def _forecast_day(value: Any) -> str:
@@ -78,6 +80,66 @@ def _artwork_url(hass: HomeAssistant, value: Any) -> str:
         return value
     base_url = hass.config.internal_url or hass.config.external_url
     return f"{base_url.rstrip('/')}{value}" if base_url and value.startswith("/") else ""
+
+
+def _browse_tree(response: Any, entity_id: str) -> dict[str, Any]:
+    """Extract the selected player's BrowseMedia response from HA service data."""
+    if not isinstance(response, dict):
+        return {}
+    tree = response.get(entity_id, response)
+    return tree if isinstance(tree, dict) else {}
+
+
+def _truncate_utf8(value: str, limit: int) -> str:
+    """Truncate on a UTF-8 code-point boundary for fixed-size firmware fields."""
+    return value.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
+
+
+def _browse_items(tree: dict[str, Any], offset: int) -> dict[str, Any]:
+    """Convert Home Assistant BrowseMedia into the bounded panel wire format."""
+    children = tree.get("children", [])
+    if not isinstance(children, list):
+        children = []
+    available: list[dict[str, Any]] = []
+    for item in children:
+        if not isinstance(item, dict):
+            continue
+        content_type = item.get("media_content_type")
+        content_id = item.get("media_content_id")
+        title = item.get("title")
+        if not all(isinstance(value, str) and value for value in (content_type, content_id, title)):
+            continue
+        # Firmware stores these strings in bounded UTF-8 buffers. Truncate on
+        # code-point boundaries and omit IDs that cannot be represented safely.
+        title = _truncate_utf8(title, 79)
+        if len(content_type.encode("utf-8")) > 64:
+            continue
+        if len(content_id.encode("utf-8")) > 256:
+            continue
+        available.append({
+            "title": title,
+            "media_content_type": content_type,
+            "media_content_id": content_id,
+            "can_expand": bool(item.get("can_expand", False)),
+            "can_play": bool(item.get("can_play", False)),
+        })
+    items = available[offset:offset + _MEDIA_BROWSE_PAGE_SIZE]
+    return {
+        "title": _truncate_utf8(str(tree.get("title") or "Media"), 79),
+        "offset": offset,
+        "total": len(available),
+        "items": items,
+    }
+
+
+def _bounded_browse_json(payload: dict[str, Any]) -> str:
+    """Keep browse responses within the panel's 2048-byte MQTT receive buffer."""
+    while payload["items"]:
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        if len(encoded.encode("utf-8")) <= _MEDIA_BROWSE_RESPONSE_LIMIT:
+            return encoded
+        payload["items"].pop()
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -238,7 +300,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await mqtt.async_publish(hass, f"{topic}/set/screenshots_enabled", "ON" if config["screenshots_enabled"] else "OFF", 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/pages", json.dumps(layout_payload(config), ensure_ascii=False), 1, True)
         # Keep the compatibility payload aligned with the generated manifest.
-        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "1.3.0", "contract": "12"}), 1, True)
+        await mqtt.async_publish(hass, f"{topic}/set/blueprint_info", json.dumps({"version": "1.4.0", "contract": "13"}), 1, True)
         await mqtt.async_publish(hass, f"{topic}/set/name", panel_name, 1, True)
         await mqtt.async_publish(
             hass,
@@ -346,10 +408,90 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return
         await hass.services.async_call("media_player", "play_media", {**payload, "entity_id": entity_id}, blocking=False)
 
+    async def browse_media(payload_text: str) -> None:
+        """Browse one page from the configured player and return compact MQTT data."""
+        if not entity_id:
+            await mqtt.async_publish(
+                hass, f"{topic}/set/media/browse",
+                '{"title":"No media player configured","offset":0,"total":0,"items":[],"error":"Select a media player in the synchronization settings"}',
+                1, False,
+            )
+            return
+        try:
+            request = json.loads(payload_text)
+            if not isinstance(request, dict):
+                raise ValueError("Browse request must be an object")
+            content_type = request.get("media_content_type")
+            content_id = request.get("media_content_id")
+            offset = request.get("offset", 0)
+            if content_type is not None and (not isinstance(content_type, str) or len(content_type.encode("utf-8")) > 64):
+                raise ValueError("Invalid media content type")
+            if content_id is not None and (not isinstance(content_id, str) or len(content_id.encode("utf-8")) > 256):
+                raise ValueError("Invalid media content ID")
+            if isinstance(offset, bool) or not isinstance(offset, int) or not 0 <= offset <= 10000:
+                raise ValueError("Invalid browse offset")
+            service_data: dict[str, Any] = {"entity_id": entity_id}
+            if content_type:
+                service_data["media_content_type"] = content_type
+            if content_id:
+                service_data["media_content_id"] = content_id
+            result = await hass.services.async_call(
+                "media_player", "browse_media", service_data,
+                blocking=True, return_response=True,
+            )
+            tree = _browse_tree(result, entity_id)
+            if not tree:
+                raise HomeAssistantError("Media browser returned no results")
+            response = _browse_items(tree, offset)
+            await mqtt.async_publish(
+                hass, f"{topic}/set/media/browse", _bounded_browse_json(response), 1, False,
+            )
+        except (ValueError, HomeAssistantError) as err:
+            response = {"title": "Media unavailable", "offset": 0, "total": 0,
+                        "items": [], "error": str(err)[:96]}
+            await mqtt.async_publish(
+                hass, f"{topic}/set/media/browse", json.dumps(response, separators=(",", ":")), 1, False,
+            )
+        except Exception as err:  # noqa: BLE001 - report service failures to the panel.
+            _LOGGER.debug("WallDisplay media browse failed: %s", type(err).__name__)
+            response = {"title": "Media unavailable", "offset": 0, "total": 0,
+                        "items": [], "error": "Unable to browse this media player"}
+            await mqtt.async_publish(
+                hass, f"{topic}/set/media/browse", json.dumps(response, separators=(",", ":")), 1, False,
+            )
+
+    async def play_browse_item(payload_text: str) -> None:
+        """Play a selected BrowseMedia item through Home Assistant."""
+        if not entity_id:
+            return
+        try:
+            request = json.loads(payload_text)
+            if not isinstance(request, dict):
+                return
+            content_type = request.get("media_content_type")
+            content_id = request.get("media_content_id")
+            if not isinstance(content_type, str) or not content_type or len(content_type.encode("utf-8")) > 64:
+                return
+            if not isinstance(content_id, str) or not content_id or len(content_id.encode("utf-8")) > 256:
+                return
+            await hass.services.async_call(
+                "media_player", "play_media",
+                {"entity_id": entity_id, "media_content_type": content_type,
+                 "media_content_id": content_id}, blocking=False,
+            )
+        except (ValueError, HomeAssistantError):
+            _LOGGER.debug("Ignoring invalid WallDisplay media selection")
+
     async def handle_command(message: mqtt.ReceiveMessage) -> None:
         if getattr(message, "retain", False):
             return
         command = message.topic.rsplit("/", 1)[-1]
+        if message.topic.endswith("/cmd/media/browse"):
+            await browse_media(message.payload)
+            return
+        if message.topic.endswith("/cmd/media/play"):
+            await play_browse_item(message.payload)
+            return
         if command == "volume":
             try:
                 volume_level = min(100, max(0, float(message.payload))) / 100

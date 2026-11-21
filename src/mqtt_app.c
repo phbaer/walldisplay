@@ -21,7 +21,7 @@ static void *s_connected_ctx;
 #define MQTT_RX_TOPIC_MAX_LEN 256
 #define MQTT_RX_PAYLOAD_MAX_LEN 2048
 #define MQTT_TX_TOPIC_MAX_LEN 192
-#define MQTT_TX_PAYLOAD_MAX_LEN 64
+#define MQTT_TX_PAYLOAD_MAX_LEN 384
 #define MQTT_TX_QUEUE_DEPTH 12
 
 typedef struct { char topic[MQTT_TX_TOPIC_MAX_LEN]; char payload[MQTT_TX_PAYLOAD_MAX_LEN]; bool retain; } mqtt_tx_request_t;

@@ -1,0 +1,59 @@
+name: Publish signed PR firmware preview
+
+env:
+  PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+jobs:
+  sign-and-publish:
+    if: ${{ forgejo.event.label.name == 'firmware-preview' && forgejo.event.pull_request.head.repo.full_name == forgejo.repository }}
+    runs-on: node
+    container:
+      image: espressif/idf:v6.1.1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install action runtime
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends nodejs
+      - uses: https://data.forgejo.org/actions/checkout@v7
+        with:
+          ref: ${{ forgejo.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Fetch the matching unsigned PR artifact
+        env:
+          SERVER: ${{ env.PUBLIC_URL }}
+          REPOSITORY: ${{ forgejo.repository }}
+          PR_NUMBER: ${{ forgejo.event.pull_request.number }}
+          SOURCE_SHA: ${{ forgejo.event.pull_request.head.sha }}
+          FORGEJO_TOKEN: ${{ forgejo.token }}
+        run: |
+          python tools/prepare_preview_artifact.py \
+            --server "$SERVER" \
+            --repo "$REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --source-sha "$SOURCE_SHA" \
+            --output-dir preview-input
+      - name: Sign and publish preview release
+        env:
+          OTA_SIGNING_KEY_PEM: ${{ secrets.OTA_SIGNING_KEY_PEM }}
+          RELEASE_TOKEN: ${{ forgejo.token }}
+          SERVER: ${{ env.PUBLIC_URL }}
+          REPOSITORY: ${{ forgejo.repository }}
+          SOURCE_SHA: ${{ forgejo.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ forgejo.event.pull_request.number }}
+        run: |
+          source "${IDF_PATH:?}/export.sh"
+          python tools/sign_preview_firmware.py \
+            --input-dir preview-input \
+            --source-sha "$SOURCE_SHA" \
+            --pr-number "$PR_NUMBER" \
+            --server "$SERVER" \
+            --repo "$REPOSITORY" \
+            --token "$RELEASE_TOKEN"

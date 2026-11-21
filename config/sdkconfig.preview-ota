@@ -1,0 +1,3 @@
+# Build a remote-signing input: OTA verification is enabled, but this job has
+# no private key and must not append an application signature itself.
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=n

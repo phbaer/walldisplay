@@ -302,6 +302,10 @@ static bool handle_input(const char *suffix, const char *payload) {
         echo_input(suffix, canonical, payload);
         return true;
     }
+    if (panel_topic_input(suffix, "media/browse", &canonical)) {
+        if (ui_set_media_browse(payload) != ESP_OK) ESP_LOGW(TAG, "Ignoring invalid media browse response");
+        return true;
+    }
     if (panel_topic_input(suffix, "media", &canonical)) {
         ui_set_media_text(payload);
         request_artwork(payload);

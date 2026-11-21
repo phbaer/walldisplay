@@ -10,6 +10,7 @@ on:
     branches: ['**']
     tags: ['v*']
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
     inputs:
       release_tag:
@@ -63,6 +64,119 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 14
+
+  preview-build:
+    if: ${{ forgejo.event_name == 'pull_request' && forgejo.event.action == 'labeled' && forgejo.event.label.name == 'firmware-preview' && forgejo.event.pull_request.head.repo.full_name == forgejo.repository }}
+    runs-on: node
+    container:
+      image: espressif/idf:v6.1.1
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install action runtime
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends nodejs curl
+      - name: Resolve same-repository PR head
+        id: source
+        env:
+          SERVER: ${{ env.PUBLIC_URL }}
+          REPOSITORY: ${{ forgejo.repository }}
+          PR_NUMBER: ${{ forgejo.event.pull_request.number }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          server = os.environ["SERVER"].rstrip("/")
+          repo = os.environ["REPOSITORY"]
+          number = os.environ["PR_NUMBER"]
+          request = urllib.request.Request(
+              f"{server}/api/v1/repos/{repo}/pulls/{number}",
+              headers={"Accept": "application/json"},
+          )
+          with urllib.request.urlopen(request, timeout=15) as response:
+              pr = json.load(response)
+          if pr.get("state") != "open":
+              raise SystemExit("A signed firmware preview requires an open PR")
+          head = pr.get("head") or {}
+          head_repo = head.get("repo") or {}
+          if head_repo.get("full_name") != repo:
+              raise SystemExit("Signed previews are limited to branches in this repository")
+          sha = head.get("sha", "")
+          if len(sha) != 40 or any(char not in "0123456789abcdef" for char in sha):
+              raise SystemExit("Forgejo returned an invalid PR head SHA")
+          with open(os.environ["FORGEJO_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"sha={sha}\n")
+          PY
+      - uses: https://data.forgejo.org/actions/checkout@v7
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: source
+      - name: Select signed preview version
+        id: package
+        working-directory: source
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          PR_NUMBER: ${{ forgejo.event.pull_request.number }}
+          RUN_ID: ${{ forgejo.run_id }}
+          RUN_ATTEMPT: ${{ forgejo.run_attempt }}
+        run: |
+          python tools/sync_project_version.py --check
+          readarray -t values < <(python - <<'PY'
+          import os, tomllib
+          with open("pyproject.toml", "rb") as project_file:
+              version = tomllib.load(project_file)["project"]["version"]
+          tag = f"v{version}-pr.{os.environ['PR_NUMBER']}.{os.environ['RUN_ID']}.{os.environ['RUN_ATTEMPT']}"
+          if len(tag) > 32 or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.+-" for char in tag):
+              raise SystemExit("The generated preview version is not valid for firmware")
+          print(tag)
+          print(tag.removeprefix("v"))
+          PY
+          )
+          test "${#values[@]}" -eq 2
+          printf 'tag=%s\nversion=%s\n' "${values[0]}" "${values[1]}" >> "$FORGEJO_OUTPUT"
+          source "${IDF_PATH:?}/export.sh"
+          python tools/build_preview_firmware.py --version "${values[0]}" --build-dir build-preview
+      - name: Collect unsigned OTA image and matching factory files
+        working-directory: source
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          PREVIEW_TAG: ${{ steps.package.outputs.tag }}
+          PREVIEW_VERSION: ${{ steps.package.outputs.version }}
+          PR_NUMBER: ${{ forgejo.event.pull_request.number }}
+          RUN_ID: ${{ forgejo.run_id }}
+          RUN_ATTEMPT: ${{ forgejo.run_attempt }}
+        run: |
+          mkdir -p preview-input
+          cp build-preview/walldisplay.bin preview-input/walldisplay-unsigned.bin
+          cp build-preview/bootloader/bootloader.bin preview-input/bootloader.bin
+          cp build-preview/partition_table/partition-table.bin preview-input/partition-table.bin
+          cp build-preview/ota_data_initial.bin preview-input/ota_data_initial.bin
+          cp partitions.csv preview-input/partitions.csv
+          printf '%s\n' "$SOURCE_SHA" > preview-input/source-sha.txt
+          python - <<'PY'
+          import json, os
+          metadata = {
+              "source_sha": os.environ["SOURCE_SHA"],
+              "tag": os.environ["PREVIEW_TAG"],
+              "version": os.environ["PREVIEW_VERSION"],
+              "pr_number": int(os.environ["PR_NUMBER"]),
+              "run_id": int(os.environ["RUN_ID"]),
+              "run_attempt": int(os.environ["RUN_ATTEMPT"]),
+          }
+          with open("preview-input/preview.json", "w", encoding="utf-8") as output:
+              json.dump(metadata, output)
+              output.write("\n")
+          PY
+      - name: Upload unsigned preview inputs
+        uses: https://data.forgejo.org/actions/upload-artifact@v3
+        with:
+          name: ota-preview-input-${{ forgejo.run_id }}-${{ forgejo.run_attempt }}
+          path: source/preview-input/*
+          if-no-files-found: error
+          retention-days: 2
 
   release:
     if: ${{ (forgejo.event_name == 'push' && startsWith(forgejo.ref, 'refs/tags/v')) || (forgejo.event_name == 'workflow_dispatch' && inputs.release_tag != '') }}

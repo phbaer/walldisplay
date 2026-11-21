@@ -1,6 +1,6 @@
 blueprint:
   # Generated from pyproject.toml by tools/sync_project_version.py.
-  name: WallDisplay MQTT Sync v1.3.0 (Contract 12)
+  name: WallDisplay MQTT Sync v1.4.0 (Contract 13)
   description: >-
     Publish the panel hostname, clock, weather, rich media controls and favourites, configurable weather/media/buttons/About pages, dynamic footer button labels, and optional header measurement chips
     to a WallDisplay panel over MQTT. Also maps panel button command topics to Home Assistant actions.
@@ -564,8 +564,8 @@ variables:
   grid5_state_entity: !input grid5_state_entity
   grid6_label: !input grid6_label
   grid6_state_entity: !input grid6_state_entity
-  blueprint_version: "1.3.0"
-  panel_contract_version: "12"
+  blueprint_version: "1.4.0"
+  panel_contract_version: "13"
   panel_topic: !input panel_topic
   panel_name: !input panel_name
   time_format: !input time_format
@@ -744,6 +744,12 @@ triggers:
   - id: media_volume
     trigger: mqtt
     topic: "{{ panel_topic }}/cmd/media/volume"
+  - id: media_browse
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/browse"
+  - id: media_play
+    trigger: mqtt
+    topic: "{{ panel_topic }}/cmd/media/play"
   - id: media_favorite1
     trigger: mqtt
     topic: "{{ panel_topic }}/cmd/media/favorite1"
@@ -1464,7 +1470,7 @@ actions:
       - conditions: >-
           {{ trigger.id not in [
             'startup', 'automation_reload', 'panel_online', 'panel_sync', 'clock', 'panel_refresh',
-            'weather', 'weather_refresh', 'media', 'chip1', 'chip2', 'chip3', 'chip4',
+            'weather', 'weather_refresh', 'media', 'media_browse', 'media_play', 'chip1', 'chip2', 'chip3', 'chip4',
             'btn1_press', 'btn2_press', 'btn3_press', 'btn4_press', 'btn5_press',
             'grid1_press', 'grid1_state', 'grid2_press', 'grid2_state', 'grid3_press', 'grid3_state', 'grid4_press', 'grid4_state', 'grid5_press', 'grid5_state', 'grid6_press', 'grid6_state',
             'button1_state', 'button2_state', 'button3_state', 'button4_state', 'button5_state'
@@ -1521,6 +1527,118 @@ actions:
               entity_id: "{{ button5_state_entity }}"
       - conditions: "{{ trigger.id == 'btn5_press' and button5_label | length > 0 and button5_state_entity | length == 0 }}"
         sequence: !input button5_action
+
+  - choose:
+      - conditions: "{{ trigger.id == 'media_browse' }}"
+        sequence:
+          - variables:
+              browse_request: "{{ trigger.payload | from_json(default={}) }}"
+          - choose:
+              - conditions: >-
+                  {{ media_entity | length > 0 and browse_request is mapping
+                     and 0 <= (browse_request.get('offset', 0) | int(-1)) <= 10000
+                     and (browse_request.get('media_content_type') is none
+                       or (browse_request.get('media_content_type') is string
+                         and browse_request.get('media_content_type') | length <= 64))
+                     and (browse_request.get('media_content_id') is none
+                       or (browse_request.get('media_content_id') is string
+                         and browse_request.get('media_content_id') | length <= 256)) }}
+                sequence:
+                  - action: media_player.browse_media
+                    target: {entity_id: "{{ media_entity }}"}
+                    data: >-
+                      {% set content_type = browse_request.get('media_content_type') %}
+                      {% set content_id = browse_request.get('media_content_id') %}
+                      {% if content_type is string and content_type and content_id is string and content_id %}
+                        {{ {'media_content_type': content_type, 'media_content_id': content_id} }}
+                      {% elif content_type is string and content_type %}
+                        {{ {'media_content_type': content_type} }}
+                      {% elif content_id is string and content_id %}
+                        {{ {'media_content_id': content_id} }}
+                      {% else %}
+                        {{ {} }}
+                      {% endif %}
+                    response_variable: media_browse_response
+                    continue_on_error: true
+                  - action: mqtt.publish
+                    data:
+                      topic: "{{ panel_topic }}/set/media/browse"
+                      qos: 1
+                      retain: false
+                      payload: >-
+                        {%- set response = media_browse_response | default({}, true) -%}
+                        {%- set tree = response.get(media_entity, response) if response is mapping else {} -%}
+                        {%- set children = tree.get('children', []) if tree is mapping else [] -%}
+                        {%- set request = browse_request -%}
+                        {%- set offset = [0, request.get('offset', 0) | int(0)] | max -%}
+                        {%- set available = namespace(items=[]) -%}
+                        {%- for item in children -%}
+                          {%- set item_title = item.get('title', '') if item is mapping else '' -%}
+                          {%- set item_type = item.get('media_content_type', '') if item is mapping else '' -%}
+                          {%- set item_id = item.get('media_content_id', '') if item is mapping else '' -%}
+                          {%- if item_title is string and item_title and item_type is string and item_type and item_type | length <= 64 and item_id is string and item_id and item_id | length <= 256 -%}
+                            {%- set candidate = {
+                              'title': item_title[:79],
+                              'media_content_type': item_type,
+                              'media_content_id': item_id,
+                              'can_expand': item.get('can_expand', false) | bool,
+                              'can_play': item.get('can_play', false) | bool
+                            } -%}
+                            {%- if candidate | tojson | length <= 1400 -%}
+                              {%- set available.items = available.items + [candidate] -%}
+                            {%- endif -%}
+                          {%- endif -%}
+                        {%- endfor -%}
+                        {%- set result = namespace(items=[], full=false) -%}
+                        {%- for item in available.items[offset:offset + 8] -%}
+                          {%- set trial = {
+                            'title': (tree.get('title', 'Browse media') | string)[:79] if tree is mapping else 'Browse media',
+                            'offset': offset,
+                            'total': available.items | length,
+                            'items': result.items + [item]
+                          } -%}
+                          {%- if not result.full and trial | tojson | length <= 1800 -%}
+                            {%- set result.items = result.items + [item] -%}
+                          {%- else -%}
+                            {%- set result.full = true -%}
+                          {%- endif -%}
+                        {%- endfor -%}
+                        {%- if tree is not mapping or 'children' not in tree -%}
+                          {{ {'title': 'Browse media', 'offset': 0, 'total': 0, 'items': [], 'error': 'Unable to browse this media player'} | tojson }}
+                        {%- else -%}
+                          {{ {
+                            'title': (tree.get('title', 'Browse media') | string)[:79],
+                            'offset': offset,
+                            'total': available.items | length,
+                            'items': result.items
+                          } | tojson }}
+                        {%- endif -%}
+            default:
+              - action: mqtt.publish
+                data:
+                  topic: "{{ panel_topic }}/set/media/browse"
+                  qos: 1
+                  retain: false
+                  payload: '{"title":"Browse media","offset":0,"total":0,"items":[],"error":"Invalid browse request or no media player configured"}'
+      - conditions: "{{ trigger.id == 'media_play' }}"
+        sequence:
+          - variables:
+              play_request: "{{ trigger.payload | from_json(default={}) }}"
+          - choose:
+              - conditions: >-
+                  {{ media_entity | length > 0 and play_request is mapping
+                     and play_request.get('media_content_type') is string
+                     and play_request.get('media_content_type') | length > 0
+                     and play_request.get('media_content_type') | length <= 64
+                     and play_request.get('media_content_id') is string
+                     and play_request.get('media_content_id') | length > 0
+                     and play_request.get('media_content_id') | length <= 256 }}
+                sequence:
+                  - action: media_player.play_media
+                    target: {entity_id: "{{ media_entity }}"}
+                    data:
+                      media_content_type: "{{ play_request.media_content_type }}"
+                      media_content_id: "{{ play_request.media_content_id }}"
 
   - choose:
       - conditions: "{{ trigger.id == 'media_previous' }}"

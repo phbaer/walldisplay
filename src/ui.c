@@ -10,6 +10,8 @@
 #include "src/libs/qrcode/lv_qrcode.h"
 #include "cJSON.h"
 #include "walldisplay/ui_actions.h"
+#include "walldisplay/panel_commands.h"
+#include "walldisplay/mqtt_receive.h"
 #include "walldisplay/ui_theme.h"
 #include "walldisplay/weather_widget.h"
 #include "walldisplay/buttons_widget.h"
@@ -34,6 +36,9 @@
 #define UI_MAX_DYNAMIC_BUTTONS 5
 #define UI_MAX_MEASUREMENT_CHIPS 4
 #define UI_MAX_MEDIA_FAVORITES 5
+#define UI_MEDIA_BROWSE_ITEMS 8
+#define UI_MEDIA_BROWSE_VISIBLE 3
+#define UI_MEDIA_BROWSE_STACK 12
 
 #define UI_SCREEN_MARGIN 10
 #define UI_HEADER_HEIGHT 112
@@ -94,10 +99,47 @@ static lv_obj_t *s_media_favorite_buttons[UI_MAX_MEDIA_FAVORITES];
 static lv_obj_t *s_media_favorite_labels[UI_MAX_MEDIA_FAVORITES];
 static lv_obj_t *s_media_favorite_icons[UI_MAX_MEDIA_FAVORITES];
 static int s_media_favorite_slots[UI_MAX_MEDIA_FAVORITES];
+typedef struct {
+    char title[80];
+    char type[65];
+    char id[257];
+    bool can_expand;
+    bool can_play;
+} media_browse_item_t;
+typedef struct {
+    char type[65];
+    char id[257];
+    size_t offset;
+    size_t view_index;
+} media_browse_location_t;
+static lv_obj_t *s_media_browse_panel;
+static lv_obj_t *s_media_browse_title;
+static lv_obj_t *s_media_browse_rows[UI_MEDIA_BROWSE_VISIBLE];
+static lv_obj_t *s_media_browse_row_labels[UI_MEDIA_BROWSE_VISIBLE];
+static lv_obj_t *s_media_browse_play_buttons[UI_MEDIA_BROWSE_VISIBLE];
+static lv_obj_t *s_media_browse_page_label;
+static media_browse_item_t s_media_browse_items[UI_MEDIA_BROWSE_ITEMS];
+static size_t s_media_browse_count;
+static size_t s_media_browse_total;
+static size_t s_media_browse_offset;
+static size_t s_media_browse_view_index;
+static size_t s_media_browse_stack_depth;
+static media_browse_location_t s_media_browse_stack[UI_MEDIA_BROWSE_STACK];
+static char s_media_browse_type[65];
+static char s_media_browse_id[257];
+static bool s_media_browse_open;
+static bool s_media_browse_loading;
 static void dynamic_button_event_cb(lv_event_t *event);
 static void media_control_event_cb(lv_event_t *event);
 static void media_volume_event_cb(lv_event_t *event);
 static void media_favorite_event_cb(lv_event_t *event);
+static void media_browse_toggle_event_cb(lv_event_t *event);
+static void media_browse_back_event_cb(lv_event_t *event);
+static void media_browse_next_event_cb(lv_event_t *event);
+static void media_browse_prev_event_cb(lv_event_t *event);
+static void media_browse_row_event_cb(lv_event_t *event);
+static void media_browse_play_event_cb(lv_event_t *event);
+static void media_browse_render_locked(void);
 
 static void touch_activity_event_cb(lv_event_t *event) {
     LV_UNUSED(event);
@@ -544,6 +586,139 @@ static void media_favorite_event_cb(lv_event_t *event) {
     if (ui_actions_emit((ui_action_t){UI_ACTION_FAVORITE, *slot}) != ESP_OK) ESP_LOGW(TAG, "Media favourite publish failed");
 }
 
+static esp_err_t media_browse_request(const char *type, const char *id, size_t offset) {
+    s_media_browse_loading = true;
+    for (size_t row = 0; row < UI_MEDIA_BROWSE_VISIBLE; ++row)
+        lv_obj_add_flag(s_media_browse_rows[row], LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(s_media_browse_title, "Loading...");
+    lv_label_set_text(s_media_browse_page_label, "Loading...");
+    const esp_err_t result = panel_commands_media_browse(type, id, offset);
+    if (result != ESP_OK) {
+        s_media_browse_loading = false;
+        lv_label_set_text(s_media_browse_title, "Request unavailable");
+        media_browse_render_locked();
+    }
+    return result;
+}
+
+static void media_browse_render_locked(void) {
+    for (size_t row = 0; row < UI_MEDIA_BROWSE_VISIBLE; ++row) {
+        const size_t item_index = s_media_browse_view_index + row;
+        if (item_index >= s_media_browse_count) {
+            lv_obj_add_flag(s_media_browse_rows[row], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        const media_browse_item_t *item = &s_media_browse_items[item_index];
+        lv_label_set_text(s_media_browse_row_labels[row], item->title);
+        if (item->can_play) lv_obj_clear_flag(s_media_browse_play_buttons[row], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(s_media_browse_play_buttons[row], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_media_browse_rows[row], LV_OBJ_FLAG_HIDDEN);
+    }
+    if (s_media_browse_count == 0) {
+        lv_label_set_text(s_media_browse_page_label, "No items");
+    } else {
+        const size_t first = s_media_browse_offset + s_media_browse_view_index + 1;
+        size_t last = s_media_browse_offset + s_media_browse_view_index + UI_MEDIA_BROWSE_VISIBLE;
+        if (last > s_media_browse_offset + s_media_browse_count) last = s_media_browse_offset + s_media_browse_count;
+        lv_label_set_text_fmt(s_media_browse_page_label, "%u-%u of %u",
+                              (unsigned)first, (unsigned)last, (unsigned)s_media_browse_total);
+    }
+}
+
+static void media_browse_close(void) {
+    s_media_browse_open = false;
+    s_media_browse_loading = false;
+    s_media_browse_stack_depth = 0;
+    lv_obj_add_flag(s_media_browse_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void media_browse_toggle_event_cb(lv_event_t *event) {
+    LV_UNUSED(event);
+    if (s_media_browse_open) { media_browse_close(); return; }
+    s_media_browse_open = true;
+    s_media_browse_stack_depth = 0;
+    s_media_browse_type[0] = '\0';
+    s_media_browse_id[0] = '\0';
+    s_media_browse_offset = 0;
+    s_media_browse_view_index = 0;
+    lv_obj_clear_flag(s_media_browse_panel, LV_OBJ_FLAG_HIDDEN);
+    if (media_browse_request(NULL, NULL, 0) != ESP_OK) ESP_LOGW(TAG, "Media browse request could not be queued");
+}
+
+static void media_browse_back_event_cb(lv_event_t *event) {
+    LV_UNUSED(event);
+    if (s_media_browse_loading) return;
+    if (s_media_browse_stack_depth == 0) { media_browse_close(); return; }
+    const media_browse_location_t parent = s_media_browse_stack[--s_media_browse_stack_depth];
+    strlcpy(s_media_browse_type, parent.type, sizeof(s_media_browse_type));
+    strlcpy(s_media_browse_id, parent.id, sizeof(s_media_browse_id));
+    s_media_browse_offset = parent.offset;
+    s_media_browse_view_index = parent.view_index;
+    if (media_browse_request(s_media_browse_type, s_media_browse_id, s_media_browse_offset) != ESP_OK)
+        ESP_LOGW(TAG, "Media browse back request could not be queued");
+}
+
+static void media_browse_next_event_cb(lv_event_t *event) {
+    LV_UNUSED(event);
+    if (s_media_browse_loading) return;
+    if (s_media_browse_view_index + UI_MEDIA_BROWSE_VISIBLE < s_media_browse_count) {
+        s_media_browse_view_index += UI_MEDIA_BROWSE_VISIBLE;
+        media_browse_render_locked();
+    } else if (s_media_browse_offset + s_media_browse_count < s_media_browse_total) {
+        s_media_browse_offset += s_media_browse_count;
+        s_media_browse_view_index = 0;
+        if (media_browse_request(s_media_browse_type, s_media_browse_id, s_media_browse_offset) != ESP_OK)
+            ESP_LOGW(TAG, "Media browse next request could not be queued");
+    }
+}
+
+static void media_browse_prev_event_cb(lv_event_t *event) {
+    LV_UNUSED(event);
+    if (s_media_browse_loading) return;
+    if (s_media_browse_view_index >= UI_MEDIA_BROWSE_VISIBLE) {
+        s_media_browse_view_index -= UI_MEDIA_BROWSE_VISIBLE;
+        media_browse_render_locked();
+    } else if (s_media_browse_offset > 0) {
+        s_media_browse_offset = s_media_browse_offset > UI_MEDIA_BROWSE_ITEMS
+                                    ? s_media_browse_offset - UI_MEDIA_BROWSE_ITEMS : 0;
+        s_media_browse_view_index = 0;
+        if (media_browse_request(s_media_browse_type, s_media_browse_id, s_media_browse_offset) != ESP_OK)
+            ESP_LOGW(TAG, "Media browse previous request could not be queued");
+    }
+}
+
+static void media_browse_play_item(media_browse_item_t *item) {
+    if (item == NULL || !item->can_play) return;
+    if (panel_commands_media_play(item->type, item->id) != ESP_OK)
+        ESP_LOGW(TAG, "Media browse play request could not be queued");
+}
+
+static void media_browse_row_event_cb(lv_event_t *event) {
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) return;
+    if (s_media_browse_loading) return;
+    media_browse_item_t *item = lv_event_get_user_data(event);
+    if (item == NULL) return;
+    if (item->can_expand) {
+        if (s_media_browse_stack_depth >= UI_MEDIA_BROWSE_STACK) return;
+        media_browse_location_t *parent = &s_media_browse_stack[s_media_browse_stack_depth++];
+        strlcpy(parent->type, s_media_browse_type, sizeof(parent->type));
+        strlcpy(parent->id, s_media_browse_id, sizeof(parent->id));
+        parent->offset = s_media_browse_offset;
+        parent->view_index = s_media_browse_view_index;
+        strlcpy(s_media_browse_type, item->type, sizeof(s_media_browse_type));
+        strlcpy(s_media_browse_id, item->id, sizeof(s_media_browse_id));
+        s_media_browse_offset = 0;
+        s_media_browse_view_index = 0;
+        if (media_browse_request(s_media_browse_type, s_media_browse_id, 0) != ESP_OK)
+            ESP_LOGW(TAG, "Media browse navigation could not be queued");
+    } else media_browse_play_item(item);
+}
+
+static void media_browse_play_event_cb(lv_event_t *event) {
+    if (lv_event_get_code(event) == LV_EVENT_CLICKED)
+        media_browse_play_item(lv_event_get_user_data(event));
+}
+
 static const char *media_favorite_symbol(const char *icon_name) {
     if (icon_name == NULL || string_equals_ci(icon_name, "none")) return "";
     if (string_equals_ci(icon_name, "radio") || string_equals_ci(icon_name, "music")) return LV_SYMBOL_AUDIO;
@@ -768,18 +943,19 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_set_flex_flow(media_controls, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(media_controls, 8, 0);
     lv_obj_align(media_controls, LV_ALIGN_BOTTOM_MID, 0, -42);
-    create_media_button(media_controls, LV_SYMBOL_PREV, 56, 52, "previous", media_control_event_cb, true);
-    lv_obj_t *play_button = create_media_button(media_controls, LV_SYMBOL_PLAY, 56, 52, "play_pause", media_control_event_cb, true);
+    create_media_button(media_controls, LV_SYMBOL_PREV, 48, 52, "previous", media_control_event_cb, true);
+    lv_obj_t *play_button = create_media_button(media_controls, LV_SYMBOL_PLAY, 48, 52, "play_pause", media_control_event_cb, true);
     s_media_play_label = lv_obj_get_child(play_button, 0);
     media_widget_set_play_label(s_media_widget, s_media_play_label);
-    create_media_button(media_controls, LV_SYMBOL_NEXT, 56, 52, "next", media_control_event_cb, true);
+    create_media_button(media_controls, LV_SYMBOL_NEXT, 48, 52, "next", media_control_event_cb, true);
+    create_media_button(media_controls, LV_SYMBOL_LIST, 40, 52, NULL, media_browse_toggle_event_cb, true);
 
     lv_obj_t *volume_rocker = lv_obj_create(media_controls);
     style_panel(volume_rocker, 0x112536, 14);
-    lv_obj_set_size(volume_rocker, 172, 52);
+    lv_obj_set_size(volume_rocker, 146, 52);
     lv_obj_set_style_pad_all(volume_rocker, 4, 0);
     lv_obj_set_style_clip_corner(volume_rocker, false, 0);
-    lv_obj_t *volume_down_button = create_media_button(volume_rocker, LV_SYMBOL_MINUS, 40, 44, "volume_down", media_control_event_cb, true);
+    lv_obj_t *volume_down_button = create_media_button(volume_rocker, LV_SYMBOL_MINUS, 32, 44, "volume_down", media_control_event_cb, true);
     style_volume_rocker_button(volume_down_button);
     lv_obj_align(volume_down_button, LV_ALIGN_LEFT_MID, 4, 0);
     lv_obj_add_event_cb(volume_down_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_down");
@@ -787,7 +963,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     s_media_volume_slider = lv_slider_create(volume_rocker);
     lv_slider_set_range(s_media_volume_slider, 0, 100);
     lv_slider_set_value(s_media_volume_slider, 50, LV_ANIM_OFF);
-    lv_obj_set_size(s_media_volume_slider, 82, 14);
+    lv_obj_set_size(s_media_volume_slider, 66, 14);
     lv_obj_set_style_bg_color(s_media_volume_slider, lv_color_hex(0x1B3E57), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_media_volume_slider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(s_media_volume_slider, 0, LV_PART_MAIN);
@@ -800,7 +976,7 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     lv_obj_align(s_media_volume_slider, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_event_cb(s_media_volume_slider, media_volume_event_cb, LV_EVENT_RELEASED, NULL);
 
-    lv_obj_t *volume_up_button = create_media_button(volume_rocker, LV_SYMBOL_PLUS, 40, 44, "volume_up", media_control_event_cb, true);
+    lv_obj_t *volume_up_button = create_media_button(volume_rocker, LV_SYMBOL_PLUS, 32, 44, "volume_up", media_control_event_cb, true);
     style_volume_rocker_button(volume_up_button);
     lv_obj_align(volume_up_button, LV_ALIGN_RIGHT_MID, -4, 0);
     lv_obj_add_event_cb(volume_up_button, media_control_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, "volume_up");
@@ -808,6 +984,60 @@ esp_err_t ui_init(const display_board_handle_t *board) {
     s_media_power_button = create_media_button(s_media_page, LV_SYMBOL_POWER, 38, 34, "power_off", media_control_event_cb, true);
     lv_obj_align(s_media_power_button, LV_ALIGN_TOP_RIGHT, -8, 8);
     lv_obj_add_flag(s_media_power_button, LV_OBJ_FLAG_HIDDEN);
+
+    /* Browsing overlays the artwork/details region. Playback and favourites
+     * stay visible and usable below it while the catalogue is open. */
+    s_media_browse_panel = lv_obj_create(s_media_page);
+    style_panel(s_media_browse_panel, UI_COLOR_SURFACE_ALT, 10);
+    /* Leave the existing media power button visible at the upper right. */
+    lv_obj_set_size(s_media_browse_panel, UI_MAIN_CONTENT_WIDTH - 84, 140);
+    lv_obj_align(s_media_browse_panel, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_pad_all(s_media_browse_panel, 5, 0);
+    lv_obj_clear_flag(s_media_browse_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_media_browse_panel, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *browse_header = lv_obj_create(s_media_browse_panel);
+    lv_obj_remove_style_all(browse_header);
+    lv_obj_set_size(browse_header, LV_PCT(100), 24);
+    lv_obj_align(browse_header, LV_ALIGN_TOP_MID, 0, 0);
+    s_media_browse_title = lv_label_create(browse_header);
+    lv_label_set_text(s_media_browse_title, "Music library");
+    lv_obj_set_width(s_media_browse_title, UI_MAIN_CONTENT_WIDTH - 200);
+    lv_label_set_long_mode(s_media_browse_title, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_font(s_media_browse_title, font_ui_14(), 0);
+    lv_obj_set_style_text_color(s_media_browse_title, lv_color_hex(UI_COLOR_TEXT), 0);
+    lv_obj_align(s_media_browse_title, LV_ALIGN_LEFT_MID, 34, 0);
+    lv_obj_t *browse_back = create_media_button(browse_header, LV_SYMBOL_LEFT, 34, 22, NULL, media_browse_back_event_cb, true);
+    lv_obj_align(browse_back, LV_ALIGN_LEFT_MID, 0, 0);
+
+    for (size_t i = 0; i < UI_MEDIA_BROWSE_VISIBLE; ++i) {
+        lv_obj_t *row = lv_btn_create(s_media_browse_panel);
+        style_button(row);
+        lv_obj_set_size(row, LV_PCT(100), 28);
+        lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 25 + (int)i * 29);
+        lv_obj_add_event_cb(row, media_browse_row_event_cb, LV_EVENT_CLICKED, &s_media_browse_items[i]);
+        s_media_browse_rows[i] = row;
+        lv_obj_t *label = lv_label_create(row);
+        lv_obj_set_width(label, UI_MAIN_CONTENT_WIDTH - 166);
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_font(label, font_ui_14(), 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(UI_COLOR_TEXT), 0);
+        lv_obj_align(label, LV_ALIGN_LEFT_MID, 3, 0);
+        s_media_browse_row_labels[i] = label;
+        lv_obj_t *play = create_media_button(row, LV_SYMBOL_PLAY, 27, 24, &s_media_browse_items[i], media_browse_play_event_cb, true);
+        lv_obj_align(play, LV_ALIGN_RIGHT_MID, -2, 0);
+        s_media_browse_play_buttons[i] = play;
+        lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_t *browse_prev = create_media_button(s_media_browse_panel, LV_SYMBOL_LEFT, 26, 20, NULL, media_browse_prev_event_cb, true);
+    lv_obj_align(browse_prev, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+    s_media_browse_page_label = lv_label_create(s_media_browse_panel);
+    lv_label_set_text(s_media_browse_page_label, "No items");
+    lv_obj_set_style_text_font(s_media_browse_page_label, font_ui_14(), 0);
+    lv_obj_set_style_text_color(s_media_browse_page_label, lv_color_hex(UI_COLOR_TEXT_MUTED), 0);
+    lv_obj_align(s_media_browse_page_label, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_t *browse_next = create_media_button(s_media_browse_panel, LV_SYMBOL_RIGHT, 26, 20, NULL, media_browse_next_event_cb, true);
+    lv_obj_align(browse_next, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
     lv_obj_t *media_favorites = lv_obj_create(s_media_page);
     lv_obj_remove_style_all(media_favorites);
@@ -988,6 +1218,95 @@ esp_err_t ui_set_media_text(const char *media_text) {
     }
     cJSON_Delete(root);
     return media_widget_update(s_media_widget, media_text);
+}
+
+static bool media_browse_copy_string(const cJSON *object, const char *key, char *dest, size_t capacity,
+                                     bool required) {
+    const cJSON *value = cJSON_GetObjectItemCaseSensitive(object, key);
+    if (!cJSON_IsString(value) || value->valuestring == NULL) {
+        if (required) return false;
+        dest[0] = '\0';
+        return true;
+    }
+    const size_t length = strlen(value->valuestring);
+    if (length >= capacity) return false;
+    memcpy(dest, value->valuestring, length + 1);
+    return true;
+}
+
+static bool media_browse_copy_title(const cJSON *object, const char *key, char *dest, size_t capacity) {
+    const cJSON *value = cJSON_GetObjectItemCaseSensitive(object, key);
+    if (!cJSON_IsString(value) || value->valuestring == NULL || capacity == 0) return false;
+    const size_t length = strlen(value->valuestring);
+    size_t copy_length = length < capacity - 1 ? length : capacity - 1;
+    /* Do not leave a partial UTF-8 code point at the fixed buffer boundary. */
+    while (copy_length < length && copy_length > 0 &&
+           (((unsigned char)value->valuestring[copy_length] & 0xc0) == 0x80)) {
+        --copy_length;
+    }
+    memcpy(dest, value->valuestring, copy_length);
+    dest[copy_length] = '\0';
+    return true;
+}
+
+esp_err_t ui_set_media_browse(const char *browse_text) {
+    if (browse_text == NULL) return ESP_ERR_INVALID_ARG;
+    cJSON *root = cJSON_ParseWithLength(browse_text, strnlen(browse_text, MQTT_RX_PAYLOAD_SIZE));
+    if (!cJSON_IsObject(root)) { cJSON_Delete(root); return ESP_ERR_INVALID_ARG; }
+
+    media_browse_item_t parsed[UI_MEDIA_BROWSE_ITEMS] = {0};
+    size_t count = 0;
+    size_t offset = 0;
+    size_t total = 0;
+    const cJSON *offset_json = cJSON_GetObjectItemCaseSensitive(root, "offset");
+    const cJSON *total_json = cJSON_GetObjectItemCaseSensitive(root, "total");
+    const cJSON *items = cJSON_GetObjectItemCaseSensitive(root, "items");
+    const cJSON *error = cJSON_GetObjectItemCaseSensitive(root, "error");
+    char title[80] = "Music library";
+    bool valid = media_browse_copy_title(root, "title", title, sizeof(title));
+    if (cJSON_IsNumber(offset_json) && offset_json->valuedouble >= 0 && offset_json->valuedouble <= 1000000)
+        offset = (size_t)offset_json->valuedouble;
+    else valid = false;
+    if (cJSON_IsNumber(total_json) && total_json->valuedouble >= 0 && total_json->valuedouble <= 1000000)
+        total = (size_t)total_json->valuedouble;
+    else valid = false;
+    if (cJSON_IsArray(items)) {
+        const cJSON *item = NULL;
+        cJSON_ArrayForEach(item, items) {
+            if (count >= UI_MEDIA_BROWSE_ITEMS) { valid = false; break; }
+            media_browse_item_t *entry = &parsed[count];
+            const cJSON *can_expand = cJSON_GetObjectItemCaseSensitive(item, "can_expand");
+            const cJSON *can_play = cJSON_GetObjectItemCaseSensitive(item, "can_play");
+            if (!media_browse_copy_title(item, "title", entry->title, sizeof(entry->title)) ||
+                !media_browse_copy_string(item, "media_content_type", entry->type, sizeof(entry->type), true) ||
+                !media_browse_copy_string(item, "media_content_id", entry->id, sizeof(entry->id), true) ||
+                !cJSON_IsBool(can_expand) || !cJSON_IsBool(can_play)) {
+                valid = false;
+                break;
+            }
+            entry->can_expand = cJSON_IsTrue(can_expand);
+            entry->can_play = cJSON_IsTrue(can_play);
+            ++count;
+        }
+    } else if (!cJSON_IsString(error)) valid = false;
+    if (!valid) { cJSON_Delete(root); return ESP_ERR_INVALID_ARG; }
+    if (cJSON_IsString(error) && error->valuestring != NULL && error->valuestring[0] != '\0') {
+        strlcpy(title, error->valuestring, sizeof(title));
+        count = 0;
+    }
+    cJSON_Delete(root);
+
+    if (!lvgl_port_lock(0)) return ESP_ERR_TIMEOUT;
+    memcpy(s_media_browse_items, parsed, sizeof(parsed));
+    s_media_browse_count = count;
+    s_media_browse_total = total;
+    s_media_browse_offset = offset;
+    s_media_browse_loading = false;
+    if (s_media_browse_view_index >= count) s_media_browse_view_index = 0;
+    lv_label_set_text(s_media_browse_title, title);
+    media_browse_render_locked();
+    lvgl_port_unlock();
+    return ESP_OK;
 }
 
 esp_err_t ui_set_media_power(const char *power_text) {
