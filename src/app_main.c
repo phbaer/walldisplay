@@ -445,7 +445,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(ota_manager_init(publish_runtime_topic));
     ESP_ERROR_CHECK(device_info_init(publish_runtime_topic));
 
-    ESP_LOGI(TAG, "Starting %s (%s)", APP_DEVICE_NAME, APP_FW_VERSION);
+    ESP_LOGI(TAG, "Starting %s (%s, build %s)", APP_DEVICE_NAME, APP_FW_VERSION, APP_BUILD_ID);
 
     ESP_ERROR_CHECK(display_board_init(&board));
     err = screenshot_init(&board, publish_runtime_topic);

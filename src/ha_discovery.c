@@ -416,6 +416,7 @@ esp_err_t ha_discovery_publish_all(esp_mqtt_client_handle_t client) {
     DISCOVERY_CHECK(publish_device_diagnostic(client, "ipv6_linklocal", "IPv6 Link-local Address", "ipv6_linklocal", NULL, NULL, "mdi:ip-network"));
     DISCOVERY_CHECK(publish_device_diagnostic(client, "mac", "Wi-Fi MAC", "mac", NULL, NULL, "mdi:network-outline"));
     DISCOVERY_CHECK(publish_device_diagnostic(client, "firmware", "Firmware Version", "firmware_version", NULL, NULL, "mdi:chip"));
+    DISCOVERY_CHECK(publish_device_diagnostic(client, "firmware_build", "Firmware Build", "firmware_build", NULL, NULL, "mdi:source-commit"));
     DISCOVERY_CHECK(publish_device_diagnostic(client, "blueprint", "Blueprint Version", "blueprint_version", NULL, NULL, "mdi:script-text"));
     DISCOVERY_CHECK(publish_device_diagnostic(client, "firmware_contract", "Firmware Contract", "firmware_contract_version", NULL, NULL, "mdi:file-document-check"));
     DISCOVERY_CHECK(publish_device_diagnostic(client, "blueprint_contract", "Blueprint Contract", "blueprint_contract_version", NULL, NULL, "mdi:file-document-check"));

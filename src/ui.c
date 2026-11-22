@@ -520,9 +520,9 @@ static void refresh_about_page(void) {
     const unsigned seconds = (unsigned) (uptime_s % 60U);
     char about_text[768];
     snprintf(about_text, sizeof(about_text),
-             "SYSTEM\nFirmware: %s\nMQTT contract: %s\nModel: %s\nUptime: %ud %02u:%02u:%02u\nReset: %s\n\nNETWORK\nHostname: %s\nIPv4: %s\nIPv6: %s\nIPv6 LL: %s\n"
+             "SYSTEM\nFirmware: %s\nBuild: %s\nMQTT contract: %s\nModel: %s\nUptime: %ud %02u:%02u:%02u\nReset: %s\n\nNETWORK\nHostname: %s\nIPv4: %s\nIPv6: %s\nIPv6 LL: %s\n"
              "MAC: %s\nWi-Fi: %s\nWi-Fi credentials: %s\nMQTT: %s%s%s",
-             APP_FW_VERSION, APP_CONTRACT_VERSION, APP_DEVICE_MODEL,
+             APP_FW_VERSION, APP_BUILD_ID, APP_CONTRACT_VERSION, APP_DEVICE_MODEL,
              days, hours, minutes, seconds,
              reset_reason_name(esp_reset_reason()), hostname_text, ipv4_text, ipv6_global_text, ipv6_linklocal_text,
              mac_text, wifi_text, wifi_credentials, mqtt_credentials, ap_text[0] ? "\n\n" : "", ap_text);

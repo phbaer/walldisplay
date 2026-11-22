@@ -114,6 +114,10 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           path: source
+      - name: Trust source checkout in build container
+        env:
+          SOURCE_WORKSPACE: ${{ forgejo.workspace }}/source
+        run: git config --global --add safe.directory "$SOURCE_WORKSPACE"
       - name: Select signed preview version
         id: package
         working-directory: source

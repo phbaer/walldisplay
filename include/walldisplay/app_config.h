@@ -17,8 +17,11 @@
 #ifndef APP_FW_VERSION
 #define APP_FW_VERSION "1.4.0"
 #endif
+#ifndef APP_BUILD_ID
+#define APP_BUILD_ID "unknown"
+#endif
 /* Increment whenever MQTT topics, payloads, or semantics change. */
-#define APP_CONTRACT_VERSION "13"
+#define APP_CONTRACT_VERSION "14"
 
 #define APP_WIFI_MAX_SSID_LEN 32
 #define APP_WIFI_MAX_PASSWORD_LEN 64

@@ -109,6 +109,7 @@ esp_err_t device_info_publish(void) {
     cJSON_AddStringToObject(root, "ip", ip_text);
     cJSON_AddStringToObject(root, "mac", mac_text);
     cJSON_AddStringToObject(root, "firmware_version", APP_FW_VERSION);
+    cJSON_AddStringToObject(root, "firmware_build", APP_BUILD_ID);
     cJSON_AddStringToObject(root, "firmware_contract_version", APP_CONTRACT_VERSION);
     cJSON_AddStringToObject(root, "blueprint_version", s_blueprint_version);
     cJSON_AddStringToObject(root, "blueprint_contract_version", s_blueprint_contract_version);
