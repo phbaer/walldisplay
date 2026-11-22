@@ -48,7 +48,9 @@ def event_matches(run: dict, pr_number: int, source_sha: str) -> bool:
         if isinstance(event, str):
             event = json.loads(event)
         return (
-            event.get("action") == "labeled"
+            event.get("action") in ("labeled", "label_updated")
+            and any(label.get("name") == "firmware-preview"
+                    for label in (event.get("pull_request") or {}).get("labels", []))
             and event.get("number") == pr_number
             and (event.get("label") or {}).get("name") == "firmware-preview"
         )

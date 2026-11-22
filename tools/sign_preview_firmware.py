@@ -109,8 +109,9 @@ def main() -> None:
     )
     with urlopen(request, timeout=30) as response:
         pr = json.load(response)
-    if pr["state"] != "open" or pr["head"]["sha"] != args.source_sha:
-        print("Skipping publication because the reviewed PR head is no longer open and current")
+    if (pr["state"] != "open" or pr["head"]["sha"] != args.source_sha
+            or not any(label["name"] == "firmware-preview" for label in pr["labels"])):
+        print("Skipping publication because the PR is closed, its head changed, or preview approval was withdrawn")
         return
 
     notes = Path("preview-release-notes.md")

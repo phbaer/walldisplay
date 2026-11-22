@@ -15,16 +15,26 @@ spec.loader.exec_module(preview)
 
 class PreviewArtifactTests(unittest.TestCase):
     def test_matches_only_the_labeled_pr_build_for_the_exact_head(self):
+        event = {
+            "action": "label_updated",
+            "number": 30,
+            "label": {"name": "firmware-preview"},
+            "pull_request": {"labels": [{"name": "firmware-preview"}]},
+        }
         run = {
             "workflow_id": "release-firmware.yaml",
             "event": "pull_request",
             "commit_sha": "a" * 40,
-            "event_payload": '{"action":"labeled","number":30,"label":{"name":"firmware-preview"}}',
+            "event_payload": json.dumps(event),
         }
         self.assertTrue(preview.event_matches(run, 30, "a" * 40))
         self.assertFalse(preview.event_matches(run, 30, "b" * 40))
         self.assertFalse(preview.event_matches(run, 31, "a" * 40))
         self.assertFalse(preview.event_matches({**run, "workflow_id": "other.yaml"}, 30, "a" * 40))
+        run["event_payload"] = json.dumps({**event, "action": "labeled"})
+        self.assertTrue(preview.event_matches(run, 30, "a" * 40))
+        run["event_payload"] = json.dumps({**event, "pull_request": {"labels": []}})
+        self.assertFalse(preview.event_matches(run, 30, "a" * 40))
 
     def test_unpacks_only_expected_files_and_checks_source_sha(self):
         contents = {name: b"preview" for name in preview.EXPECTED_FILES}
