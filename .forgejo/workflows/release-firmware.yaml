@@ -66,7 +66,7 @@ jobs:
           retention-days: 14
 
   preview-build:
-    if: ${{ forgejo.event_name == 'pull_request' && forgejo.event.action == 'labeled' && forgejo.event.label.name == 'firmware-preview' && forgejo.event.pull_request.head.repo.full_name == forgejo.repository }}
+    if: ${{ forgejo.event_name == 'pull_request' && (forgejo.event.action == 'labeled' || forgejo.event.action == 'label_updated') && forgejo.event.label.name == 'firmware-preview' && contains(forgejo.event.pull_request.labels.*.name, 'firmware-preview') && forgejo.event.pull_request.head.repo.full_name == forgejo.repository }}
     runs-on: node
     container:
       image: espressif/idf:v6.1.1
