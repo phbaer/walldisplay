@@ -29,9 +29,14 @@ required = {
     'CONFIG_IDF_TARGET="esp32s3"',
     "CONFIG_SECURE_SIGNED_ON_UPDATE=y",
     "CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME=y",
-    "CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=n",
 }
-if not required <= settings or "CONFIG_SECURE_BOOT=y" in settings:
+disabled = {
+    "CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=n",
+    "# CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES is not set",
+}
+if (not required <= settings or not (disabled & settings)
+        or "CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y" in settings
+        or "CONFIG_SECURE_BOOT=y" in settings):
     raise SystemExit("Preview build configuration does not match unsigned OTA policy")
 subprocess.run([*command, "build"], cwd=root, check=True)
 if not (args.build_dir / "walldisplay.bin").is_file():
