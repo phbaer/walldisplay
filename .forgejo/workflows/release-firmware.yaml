@@ -214,8 +214,13 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.release_tag }}
           EVENT_REF: ${{ forgejo.ref }}
+          DEFAULT_BRANCH: ${{ forgejo.event.repository.default_branch }}
         run: |
           tag="${REQUESTED_TAG:-${EVENT_REF#refs/tags/}}"
+          git merge-base --is-ancestor HEAD "refs/remotes/origin/$DEFAULT_BRANCH" || {
+            echo "Firmware release tags must point to a commit on $DEFAULT_BRANCH" >&2
+            exit 1
+          }
           python tools/firmware_release.py select --tag "$tag" --output "$FORGEJO_OUTPUT"
       - name: Validate Forgejo public URL
         env:
