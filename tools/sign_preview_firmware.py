@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from urllib.request import Request, urlopen
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -101,6 +102,16 @@ def main() -> None:
         shutil.copyfile(input_dir / "ota_data_initial.bin", build / "ota_data_initial.bin")
         shutil.copyfile(input_dir / "partitions.csv", Path("partitions.csv"))
         package(tag, args.server, args.repo, build=build, source_sha=args.source_sha)
+
+    request = Request(
+        f"{args.server.rstrip('/')}/api/v1/repos/{args.repo}/pulls/{args.pr_number}",
+        headers={"Authorization": f"Bearer {args.token}"},
+    )
+    with urlopen(request, timeout=30) as response:
+        pr = json.load(response)
+    if pr["state"] != "open" or pr["head"]["sha"] != args.source_sha:
+        print("Skipping publication because the reviewed PR head is no longer open and current")
+        return
 
     notes = Path("preview-release-notes.md")
     notes.write_text(

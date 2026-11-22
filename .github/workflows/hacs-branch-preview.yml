@@ -3,71 +3,25 @@ name: HACS branch preview
 on:
   push:
     branches: ["**"]
-    tags-ignore: ["**"]
-  delete:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  publish:
-    if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch
+  package:
+    if: github.ref_name != github.event.repository.default_branch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Synchronize project version
         run: python tools/sync_project_version.py --check
-      # Pin around the current main-branch manifest-discovery regression.
-      - uses: hacs/action@d556e736723344f83838d08488c983a15381059a # 22.5.0
-        with:
-          category: integration
-          ignore: brands images license topics
-      - name: Set preview tag
-        env:
-          BRANCH_NAME: ${{ github.ref_name }}
-        run: |
-          branch_id=$(printf '%s' "$BRANCH_NAME" | cksum | awk '{print $1}')
-          project_version=$(python - <<'PY'
-          import tomllib
-          from pathlib import Path
-          print(tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"])
-          PY
-          )
-          echo "PREVIEW_TAG=v${project_version}b${branch_id}" >> "$GITHUB_ENV"
-      - name: Replace previous branch preview release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release delete "$PREVIEW_TAG" --cleanup-tag --yes || true
       - run: zip -r walldisplay_sync.zip custom_components/walldisplay_sync
-      - name: Publish branch preview release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$PREVIEW_TAG" \
-            --target "$GITHUB_SHA" \
-            --title "WallDisplay Sync branch: $GITHUB_REF_NAME" \
-            --prerelease
-          gh release upload "$PREVIEW_TAG" walldisplay_sync.zip --clobber
-
-  cleanup:
-    if: github.event_name == 'delete' && github.event.ref_type == 'branch' && github.event.ref != github.event.repository.default_branch
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
+      - uses: actions/upload-artifact@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
-      - name: Delete the branch preview release and tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BRANCH_NAME: ${{ github.event.ref }}
-        run: |
-          branch_id=$(printf '%s' "$BRANCH_NAME" | cksum | awk '{print $1}')
-          project_version=$(python - <<'PY'
-          import tomllib
-          from pathlib import Path
-          print(tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"])
-          PY
-          )
-          gh release delete "v${project_version}b${branch_id}" --cleanup-tag --yes || true
+          name: walldisplay-sync-preview
+          path: walldisplay_sync.zip
+          if-no-files-found: error
+          retention-days: 14

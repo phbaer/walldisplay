@@ -5,11 +5,15 @@ env:
 
 on:
   pull_request_target:
-    types: [labeled]
+    types: [labeled, closed]
+
+concurrency:
+  group: signed-firmware-preview-${{ forgejo.event.pull_request.number }}
+  cancel-in-progress: false
 
 jobs:
   sign-and-publish:
-    if: ${{ forgejo.event.label.name == 'firmware-preview' && forgejo.event.pull_request.head.repo.full_name == forgejo.repository }}
+    if: ${{ forgejo.event.action == 'labeled' && forgejo.event.label.name == 'firmware-preview' && forgejo.event.pull_request.head.repo.full_name == forgejo.repository }}
     runs-on: node
     container:
       image: espressif/idf:v6.1.1
@@ -57,3 +61,19 @@ jobs:
             --server "$SERVER" \
             --repo "$REPOSITORY" \
             --token "$RELEASE_TOKEN"
+
+  cleanup:
+    if: ${{ forgejo.event.action == 'closed' }}
+    runs-on: node
+    steps:
+      - uses: https://data.forgejo.org/actions/checkout@v7
+        with:
+          ref: ${{ forgejo.event.pull_request.base.ref }}
+          persist-credentials: false
+      - name: Remove closed PR firmware previews
+        env:
+          SERVER: ${{ env.PUBLIC_URL }}
+          REPOSITORY: ${{ forgejo.repository }}
+          PR_NUMBER: ${{ forgejo.event.pull_request.number }}
+          RELEASE_TOKEN: ${{ forgejo.token }}
+        run: python3 tools/cleanup_firmware_previews.py

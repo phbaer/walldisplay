@@ -1,0 +1,34 @@
+name: Remove legacy HACS branch preview releases
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 4 * * *'
+
+permissions:
+  contents: write
+
+concurrency: cleanup-legacy-hacs-previews
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove releases from the retired branch preview workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          jq -r '.[] | select(.prerelease or .draft) |
+            select(.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+b[0-9]+$")) |
+            select(.name | startswith("WallDisplay Sync branch: ")) |
+            [.tag_name, (.name | ltrimstr("WallDisplay Sync branch: "))] | @tsv' \
+            "$RUNNER_TEMP/releases.json" > "$RUNNER_TEMP/legacy-previews.tsv"
+          while IFS=$'\t' read -r tag branch; do
+            branch_id=$(printf '%s' "$branch" | cksum | awk '{print $1}')
+            if [[ "${tag##*b}" == "$branch_id" ]]; then
+              gh release delete "$tag" --cleanup-tag --yes
+            fi
+          done < "$RUNNER_TEMP/legacy-previews.tsv"
